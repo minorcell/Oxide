@@ -1,6 +1,5 @@
 use oxide::{
-    AiClient, AiErrorCode, ContentPart, GenerateTextRequest, Message, MessageRole, ModelRef,
-    ProviderKind,
+    AiClient, AiErrorCode, ContentPart, GenerateTextRequest, Message, MessageRole, openai,
 };
 use serde_json::json;
 use wiremock::matchers::{header, method, path};
@@ -8,10 +7,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn openai_request() -> GenerateTextRequest {
     GenerateTextRequest {
-        model: ModelRef {
-            provider: ProviderKind::OpenAi,
-            model: "gpt-4o-mini".to_string(),
-        },
+        model: openai("gpt-4o-mini").expect("model should parse"),
         messages: vec![Message {
             role: MessageRole::User,
             parts: vec![ContentPart::Text("hello".to_string())],
@@ -50,8 +46,7 @@ async fn openai_generate_text_success() {
         .await;
 
     let client = AiClient::builder()
-        .openai_api_key("test-openai-key")
-        .openai_base_url(server.uri())
+        .with_openai("test-openai-key", server.uri())
         .build()
         .expect("client should build");
 
@@ -75,8 +70,7 @@ async fn openai_401_maps_to_auth_failed() {
         .await;
 
     let client = AiClient::builder()
-        .openai_api_key("test-openai-key")
-        .openai_base_url(server.uri())
+        .with_openai("test-openai-key", server.uri())
         .build()
         .expect("client should build");
 
@@ -89,4 +83,3 @@ async fn openai_401_maps_to_auth_failed() {
     assert_eq!(err.status, Some(401));
     assert!(!err.retryable);
 }
-

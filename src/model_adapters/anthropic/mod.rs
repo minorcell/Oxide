@@ -8,22 +8,53 @@ use reqwest::header::CONTENT_TYPE;
 use serde_json::{Map, Value, json};
 
 use crate::error::{AiError, AiErrorCode};
-use crate::provider::{ProviderAdapter, check_response_status, map_send_error};
+use crate::model_adapters::{ModelAdapter, check_response_status, map_send_error};
 use crate::stream::drain_sse_frames;
 use crate::types::{
     ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, Message, MessageRole,
-    ProviderKind, StreamEvent, TextStream, ToolCall, Usage,
+    StreamEvent, TextStream, ToolCall, Usage,
 };
 
-pub(crate) struct AnthropicAdapter {
-    pub(crate) base_url: String,
-    pub(crate) api_key: String,
-    pub(crate) api_version: String,
-    pub(crate) http: Arc<reqwest::Client>,
+pub const PROVIDER_SLUG: &str = "anthropic";
+pub const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
+pub const DEFAULT_API_VERSION: &str = "2023-06-01";
+
+pub struct AnthropicAdapterSettings {
+    pub base_url: String,
+    pub api_key: String,
+    pub api_version: String,
+}
+
+impl AnthropicAdapterSettings {
+    pub fn new(api_key: impl Into<String>) -> Self {
+        Self {
+            base_url: DEFAULT_BASE_URL.to_string(),
+            api_key: api_key.into(),
+            api_version: DEFAULT_API_VERSION.to_string(),
+        }
+    }
+}
+
+pub struct AnthropicAdapter {
+    base_url: String,
+    api_key: String,
+    api_version: String,
+    http: Arc<reqwest::Client>,
+}
+
+impl AnthropicAdapter {
+    pub fn from_settings(settings: AnthropicAdapterSettings, http: Arc<reqwest::Client>) -> Self {
+        Self {
+            base_url: settings.base_url,
+            api_key: settings.api_key,
+            api_version: settings.api_version,
+            http,
+        }
+    }
 }
 
 #[async_trait]
-impl ProviderAdapter for AnthropicAdapter {
+impl ModelAdapter for AnthropicAdapter {
     async fn generate_text(
         &self,
         req: &GenerateTextRequest,
@@ -39,8 +70,8 @@ impl ProviderAdapter for AnthropicAdapter {
             .json(&payload)
             .send()
             .await
-            .map_err(|e| map_send_error(ProviderKind::Anthropic, e))?;
-        let response = check_response_status(ProviderKind::Anthropic, response).await?;
+            .map_err(|e| map_send_error(PROVIDER_SLUG, e))?;
+        let response = check_response_status(PROVIDER_SLUG, response).await?;
         let body: Value = response
             .json()
             .await
@@ -60,8 +91,8 @@ impl ProviderAdapter for AnthropicAdapter {
             .json(&payload)
             .send()
             .await
-            .map_err(|e| map_send_error(ProviderKind::Anthropic, e))?;
-        let response = check_response_status(ProviderKind::Anthropic, response).await?;
+            .map_err(|e| map_send_error(PROVIDER_SLUG, e))?;
+        let response = check_response_status(PROVIDER_SLUG, response).await?;
         let mut byte_stream = response.bytes_stream();
 
         let stream = try_stream! {
@@ -213,7 +244,10 @@ impl PendingToolUse {
 
 fn build_anthropic_payload(req: &GenerateTextRequest, stream: bool) -> Value {
     let mut payload = Map::new();
-    payload.insert("model".to_string(), Value::String(req.model.model.clone()));
+    payload.insert(
+        "model".to_string(),
+        Value::String(req.model.model().to_string()),
+    );
     payload.insert(
         "messages".to_string(),
         Value::Array(

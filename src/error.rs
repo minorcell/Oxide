@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::types::ProviderKind;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AiErrorCode {
     InvalidRequest,
@@ -23,7 +21,7 @@ pub enum AiErrorCode {
 pub struct AiError {
     pub code: AiErrorCode,
     pub message: String,
-    pub provider: Option<ProviderKind>,
+    pub provider: Option<String>,
     pub status: Option<u16>,
     pub retryable: bool,
     pub request_id: Option<String>,
@@ -44,8 +42,8 @@ impl AiError {
         }
     }
 
-    pub fn with_provider(mut self, provider: ProviderKind) -> Self {
-        self.provider = Some(provider);
+    pub fn with_provider(mut self, provider: impl Into<String>) -> Self {
+        self.provider = Some(provider.into());
         self
     }
 
@@ -85,9 +83,8 @@ pub fn is_retryable(code: AiErrorCode) -> bool {
     )
 }
 
-#[cfg(any(feature = "openai", feature = "anthropic"))]
 pub(crate) fn provider_http_error(
-    provider: ProviderKind,
+    provider_id: &str,
     status: u16,
     body: Option<String>,
     request_id: Option<String>,
@@ -97,18 +94,17 @@ pub(crate) fn provider_http_error(
         .clone()
         .unwrap_or_else(|| format!("provider returned HTTP status {}", status));
     AiError::new(code, message)
-        .with_provider(provider)
+        .with_provider(provider_id)
         .with_status(status)
         .with_raw_body(body)
         .with_request_id(request_id)
 }
 
-#[cfg(any(feature = "openai", feature = "anthropic"))]
-pub(crate) fn transport_error(provider: ProviderKind, err: reqwest::Error) -> AiError {
+pub(crate) fn transport_error(provider_id: &str, err: reqwest::Error) -> AiError {
     let code = if err.is_timeout() {
         AiErrorCode::Timeout
     } else {
         AiErrorCode::Transport
     };
-    AiError::new(code, err.to_string()).with_provider(provider)
+    AiError::new(code, err.to_string()).with_provider(provider_id)
 }

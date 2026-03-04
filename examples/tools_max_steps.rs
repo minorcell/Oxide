@@ -1,66 +1,89 @@
-use std::sync::Arc;
+use oxide::{Agent, AiClient, openai_compatible, tool};
+use serde_json::json;
 
-use async_trait::async_trait;
-use oxide::{
-    AiClient, ContentPart, Message, MessageRole, ModelRef, ProviderKind, RunToolsRequest, Tool,
-    ToolDescriptor, ToolExecError, ToolExecutor,
-};
-use serde_json::{Value, json};
+const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
+const DEFAULT_DEEPSEEK_MODEL: &str = "deepseek-chat";
 
-struct WeatherTool;
-
-#[async_trait]
-impl ToolExecutor for WeatherTool {
-    async fn execute(&self, args: Value) -> Result<Value, ToolExecError> {
-        let city = args
-            .get("city")
-            .and_then(Value::as_str)
-            .unwrap_or("unknown");
-        Ok(json!({ "city": city, "temp_c": 23, "condition": "sunny" }))
-    }
-}
-
+/// 场景：工具循环 + 最大步数保护。
+///
+/// 运行：
+/// DEEPSEEK_API_KEY=... cargo run --example tools_max_steps
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let api_key = std::env::var("OPENAI_API_KEY")?;
-    let client = AiClient::builder().openai_api_key(api_key).build()?;
+    let api_key = std::env::var("DEEPSEEK_API_KEY")?;
+    let base_url = std::env::var("DEEPSEEK_BASE_URL")
+        .unwrap_or_else(|_| DEFAULT_DEEPSEEK_BASE_URL.to_string());
+    let model =
+        std::env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| DEFAULT_DEEPSEEK_MODEL.to_string());
 
-    let weather_tool = Tool {
-        descriptor: ToolDescriptor {
-            name: "get_weather".to_string(),
-            description: "Get current weather for a city".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "city": { "type": "string" }
-                },
-                "required": ["city"]
-            }),
-        },
-        executor: Arc::new(WeatherTool),
-    };
+    let client = AiClient::builder()
+        .with_openai_compatible(base_url, Some(api_key))
+        .build()?;
 
-    let response = client
-        .run_tools(RunToolsRequest {
-            model: ModelRef {
-                provider: ProviderKind::OpenAi,
-                model: "gpt-4o-mini".to_string(),
+    // 工具 1：天气查询（mock 数据）
+    let weather_tool = tool("get_weather")
+        .description("Get current weather for a city")
+        .input_schema(json!({
+            "type": "object",
+            "properties": {
+                "city": { "type": "string" }
             },
-            messages: vec![Message {
-                role: MessageRole::User,
-                parts: vec![ContentPart::Text(
-                    "What is the weather in Shanghai? Use tools if needed.".to_string(),
-                )],
-                name: None,
-            }],
-            tools: vec![weather_tool],
-            max_steps: Some(4),
-            temperature: Some(0.2),
-            max_output_tokens: Some(300),
-            stop_sequences: vec![],
-        })
+            "required": ["city"]
+        }))
+        .execute(|args| async move {
+            let city = args
+                .get("city")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            Ok(json!({ "city": city, "temp_c": 23, "condition": "sunny" }))
+        });
+
+    // 工具 2：汇率查询（mock 数据）
+    let fx_tool = tool("get_fx_rate")
+        .description("Get FX rate by currency pair, e.g. USD/CNY")
+        .input_schema(json!({
+            "type": "object",
+            "properties": {
+                "pair": { "type": "string" }
+            },
+            "required": ["pair"]
+        }))
+        .execute(|args| async move {
+            let pair = args
+                .get("pair")
+                .and_then(|v| v.as_str())
+                .unwrap_or("USD/CNY");
+            Ok(json!({ "pair": pair, "rate": 7.18 }))
+        });
+
+    let agent = Agent::builder(client)
+        .model(openai_compatible(model)?)
+        .instructions(
+            "You can call tools. If a tool is useful, call it first, then answer concisely.",
+        )
+        .tool(weather_tool)
+        .tool(fx_tool)
+        // 避免异常循环；生产中建议根据任务复杂度设置。
+        .max_steps(4)
+        .temperature(0.2)
+        .max_output_tokens(300)
+        .build()?;
+
+    let response = agent
+        .generate_prompt(
+            "What is the weather in Shanghai and what is USD/CNY now? Use tools if needed.",
+        )
         .await?;
 
+    println!("=== agent answer ===");
     println!("{}", response.output_text);
+    println!("steps: {}", response.steps);
+    println!(
+        "usage_total: input={} output={} total={}",
+        response.usage_total.input_tokens,
+        response.usage_total.output_tokens,
+        response.usage_total.total_tokens
+    );
+
     Ok(())
 }

@@ -1,16 +1,12 @@
 use oxide::{
-    AiClient, AiErrorCode, ContentPart, GenerateTextRequest, Message, MessageRole, ModelRef,
-    ProviderKind,
+    AiClient, AiErrorCode, ContentPart, GenerateTextRequest, Message, MessageRole, anthropic,
 };
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn anthropic_request() -> GenerateTextRequest {
     GenerateTextRequest {
-        model: ModelRef {
-            provider: ProviderKind::Anthropic,
-            model: "claude-3-5-haiku-latest".to_string(),
-        },
+        model: anthropic("claude-3-5-haiku-latest").expect("model should parse"),
         messages: vec![Message {
             role: MessageRole::User,
             parts: vec![ContentPart::Text("hi".to_string())],
@@ -35,8 +31,7 @@ async fn anthropic_429_maps_to_rate_limited() {
         .await;
 
     let client = AiClient::builder()
-        .anthropic_api_key("test-anthropic-key")
-        .anthropic_base_url(server.uri())
+        .with_anthropic("test-anthropic-key", server.uri(), "2023-06-01")
         .max_retries(0)
         .build()
         .expect("client should build");
@@ -50,4 +45,3 @@ async fn anthropic_429_maps_to_rate_limited() {
     assert_eq!(err.status, Some(429));
     assert!(err.retryable);
 }
-

@@ -8,21 +8,48 @@ use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde_json::{Map, Value, json};
 
 use crate::error::{AiError, AiErrorCode};
-use crate::provider::{ProviderAdapter, check_response_status, map_send_error};
+use crate::model_adapters::{ModelAdapter, check_response_status, map_send_error};
 use crate::stream::drain_sse_frames;
 use crate::types::{
     ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, Message, MessageRole,
-    ProviderKind, StreamEvent, TextStream, ToolCall, Usage,
+    StreamEvent, TextStream, ToolCall, Usage,
 };
 
-pub(crate) struct OpenAiAdapter {
-    pub(crate) base_url: String,
-    pub(crate) api_key: String,
-    pub(crate) http: Arc<reqwest::Client>,
+pub const PROVIDER_SLUG: &str = "openai";
+pub const DEFAULT_BASE_URL: &str = "https://api.openai.com";
+
+pub struct OpenAiAdapterSettings {
+    pub base_url: String,
+    pub api_key: String,
+}
+
+impl OpenAiAdapterSettings {
+    pub fn new(api_key: impl Into<String>) -> Self {
+        Self {
+            base_url: DEFAULT_BASE_URL.to_string(),
+            api_key: api_key.into(),
+        }
+    }
+}
+
+pub struct OpenAiAdapter {
+    base_url: String,
+    api_key: String,
+    http: Arc<reqwest::Client>,
+}
+
+impl OpenAiAdapter {
+    pub fn from_settings(settings: OpenAiAdapterSettings, http: Arc<reqwest::Client>) -> Self {
+        Self {
+            base_url: settings.base_url,
+            api_key: settings.api_key,
+            http,
+        }
+    }
 }
 
 #[async_trait]
-impl ProviderAdapter for OpenAiAdapter {
+impl ModelAdapter for OpenAiAdapter {
     async fn generate_text(
         &self,
         req: &GenerateTextRequest,
@@ -40,8 +67,8 @@ impl ProviderAdapter for OpenAiAdapter {
             .json(&payload)
             .send()
             .await
-            .map_err(|e| map_send_error(ProviderKind::OpenAi, e))?;
-        let response = check_response_status(ProviderKind::OpenAi, response).await?;
+            .map_err(|e| map_send_error(PROVIDER_SLUG, e))?;
+        let response = check_response_status(PROVIDER_SLUG, response).await?;
         let body: Value = response
             .json()
             .await
@@ -63,8 +90,8 @@ impl ProviderAdapter for OpenAiAdapter {
             .json(&payload)
             .send()
             .await
-            .map_err(|e| map_send_error(ProviderKind::OpenAi, e))?;
-        let response = check_response_status(ProviderKind::OpenAi, response).await?;
+            .map_err(|e| map_send_error(PROVIDER_SLUG, e))?;
+        let response = check_response_status(PROVIDER_SLUG, response).await?;
         let mut byte_stream = response.bytes_stream();
 
         let stream = try_stream! {
@@ -212,7 +239,10 @@ impl PartialToolCall {
 
 fn build_openai_payload(req: &GenerateTextRequest, stream: bool) -> Value {
     let mut payload = Map::new();
-    payload.insert("model".to_string(), Value::String(req.model.model.clone()));
+    payload.insert(
+        "model".to_string(),
+        Value::String(req.model.model().to_string()),
+    );
     payload.insert(
         "messages".to_string(),
         Value::Array(req.messages.iter().map(to_openai_message).collect()),

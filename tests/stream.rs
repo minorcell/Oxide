@@ -1,7 +1,6 @@
 use futures_util::StreamExt;
 use oxide::{
-    AiClient, ContentPart, GenerateTextRequest, Message, MessageRole, ModelRef, ProviderKind,
-    StreamEvent,
+    AiClient, ContentPart, GenerateTextRequest, Message, MessageRole, StreamEvent, anthropic,
 };
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -27,16 +26,12 @@ async fn anthropic_stream_emits_text_usage_done() {
         .await;
 
     let client = AiClient::builder()
-        .anthropic_api_key("test-anthropic-key")
-        .anthropic_base_url(server.uri())
+        .with_anthropic("test-anthropic-key", server.uri(), "2023-06-01")
         .build()
         .expect("client should build");
 
     let req = GenerateTextRequest {
-        model: ModelRef {
-            provider: ProviderKind::Anthropic,
-            model: "claude-3-5-haiku-latest".to_string(),
-        },
+        model: anthropic("claude-3-5-haiku-latest").expect("model should parse"),
         messages: vec![Message {
             role: MessageRole::User,
             parts: vec![ContentPart::Text("hello".to_string())],

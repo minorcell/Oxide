@@ -1,45 +1,45 @@
 # Oxide
 
-Use Oxide to quickly build your Rust AI application, with a unified interface to multiple providers and powerful tool execution capabilities.
+使用 Oxide 快速构建您的 Rust AI 应用，具有统一的多供应商接口和强大的工具执行能力。
 
-[中文文档 (README_CN.md)](./README_CN.md)
+[English README](./README.md)
 
-## Highlights
+## 项目亮点
 
-- Unified API across OpenAI, Anthropic, Google, and OpenAI-compatible endpoints
-- model selectors: `openai(...)`, `anthropic(...)`, `google(...)`, `openai_compatible(...)`
-- Built-in tool loop runtime with `max_steps` guard
-- Dynamic planning hooks: `prepare_call` and `prepare_step`
-- Full lifecycle hooks for tool loops: `on_start`, `on_step_start`, `on_tool_call_start`, `on_tool_call_finish`, `on_step_finish`, `on_finish`, and `stop_when`
-- `Agent` facade for reusable model + tools + instructions workflows
+- 统一 API：OpenAI / Anthropic / Google / OpenAI-compatible
+- 模型选择：`openai(...)`、`anthropic(...)`、`google(...)`、`openai_compatible(...)`
+- 内置工具循环运行时（`max_steps` 保护）
+- 动态规划 hook：`prepare_call`、`prepare_step`
+- 提供完整生命周期回调：`on_start`、`on_step_start`、`on_tool_call_start`、`on_tool_call_finish`、`on_step_finish`、`on_finish`、`stop_when`
+- `Agent` 封装：模型 + 指令 + 工具的可复用工作流
 
-## Provider Model
+## Provider 模型
 
-One `AiClient` binds to exactly one provider configuration.
+一个 `AiClient` 只绑定一个 Provider 配置。
 
-If you need multiple providers, create multiple clients.
+如果要同时使用多个 Provider，请创建多个 `AiClient`。
 
-## Supported Providers
+## 支持的模型适配
 
-| Provider kind     | Register API                                                                           | Model selector                         |
-| ----------------- | -------------------------------------------------------------------------------------- | -------------------------------------- |
-| OpenAI GPT        | `.with_openai(api_key, base_url)`                                                      | `openai("gpt-4o-mini")`                |
-| Anthropic Claude  | `.with_anthropic(api_key, base_url, api_version)`                                      | `anthropic("claude-3-5-haiku-latest")` |
-| Google Gemini     | `.with_google(api_key, base_url)`                                                      | `google("gemini-2.0-flash")`           |
-| OpenAI-compatible | `.with_openai_compatible(base_url, api_key)` / `.with_openai_compatible_settings(...)` | `openai_compatible("deepseek-chat")`   |
+| 适配类型         | 注册方法                                                                               | 模型选择                               |
+| ---------------- | -------------------------------------------------------------------------------------- | -------------------------------------- |
+| OpenAI GPT       | `.with_openai(api_key, base_url)`                                                      | `openai("gpt-4o-mini")`                |
+| Anthropic Claude | `.with_anthropic(api_key, base_url, api_version)`                                      | `anthropic("claude-3-5-haiku-latest")` |
+| Google Gemini    | `.with_google(api_key, base_url)`                                                      | `google("gemini-2.0-flash")`           |
+| OpenAI 兼容接口  | `.with_openai_compatible(base_url, api_key)` / `.with_openai_compatible_settings(...)` | `openai_compatible("deepseek-chat")`   |
 
-## Installation
+## 安装
 
 ```toml
 [dependencies]
 oxide = { path = "." }
-# or a crate version after publish:
+# 发布到 crates.io 后可替换为版本号：
 # oxide = "x.y.z"
 ```
 
-## Quick Start (3 Examples)
+## 快速开始（3 个示例）
 
-### 1) One-shot call (DeepSeek)
+### 1）一次性调用（DeepSeek）
 
 ```rust
 use oxide::{AiClient, openai_compatible};
@@ -55,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let resp = client
-        .generate_prompt(openai_compatible("deepseek-chat")?, "Explain Rust ownership in 3 bullets.")
+        .generate_prompt(openai_compatible("deepseek-chat")?, "用 3 个要点解释 Rust 所有权。")
         .await?;
 
     println!("{}", resp.output_text);
@@ -63,7 +63,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### 2) Loop + tool calling (Agent + step hook)
+### 2）循环 + 工具调用（Agent + step 回调）
 
 ```rust
 use oxide::{tool, Agent, AiClient, RunToolsStep, openai_compatible};
@@ -93,7 +93,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let agent = Agent::builder(client)
         .model(openai_compatible("deepseek-chat")?)
-        .instructions("You can call tools before answering.")
+        .instructions("回答前可以先调用工具。")
         .tool(weather)
         .max_steps(4)
         .on_step_finish(|step: &RunToolsStep| {
@@ -102,7 +102,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let out = agent
-        .generate_prompt("What's the weather in Shanghai? Use tools if needed.")
+        .generate_prompt("上海天气如何？必要时请先调用工具。")
         .await?;
 
     println!("{}", out.output_text);
@@ -110,7 +110,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### 3) DeepSeek with two client setup styles
+### 3）DeepSeek 两种 Client 配置方式
 
 ```rust
 use oxide::{AiClient, OpenAiCompatibleAdapterSettings, openai_compatible};
@@ -143,21 +143,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-## Model Selection (AI SDK style)
+## 模型选择
 
-Use provider helpers instead of manual model-id strings:
+推荐使用 provider helper，而不是手写模型 ID 字符串：
 
 - `openai("gpt-4o-mini")`
 - `anthropic("claude-3-5-haiku-latest")`
 - `google("gemini-2.0-flash")`
 - `openai_compatible("deepseek-chat")`
 
-## Dynamic Step Control (AI SDK style)
+## 动态步骤控制
 
-`Agent` supports:
+`Agent` 提供：
 
-- `prepare_call`: adjust model/messages/tools/sampling before one run starts
-- `prepare_step`: adjust model/messages/tools/sampling before each step
+- `prepare_call`：一次调用开始前，动态改 model/messages/tools/sampling
+- `prepare_step`：每一步开始前，动态改 model/messages/tools/sampling
 
 ```rust
 use oxide::{
@@ -187,7 +187,7 @@ let agent = Agent::builder(client)
     .build()?;
 ```
 
-## Runnable Examples
+## 可运行示例
 
 ```bash
 cargo run --example basic_generate
@@ -201,9 +201,9 @@ cargo run --example mini_claude_code
 cargo run --example prepare_hooks
 ```
 
-More scenario notes: [examples/README.md](./examples/README.md)
+完整场景说明见：[examples/README.md](./examples/README.md)
 
-## Development
+## 开发
 
 ```bash
 cargo fmt
@@ -215,10 +215,10 @@ cargo check --no-default-features --features anthropic
 cargo check --features axum
 ```
 
-## Contributing
+## 贡献
 
-Issues and PRs are welcome. Please include tests for behavior changes.
+欢迎提 Issue 和 PR。涉及行为变更请附带测试。
 
-## License
+## 许可证
 
-See repository license files.
+见仓库中的 License 文件。

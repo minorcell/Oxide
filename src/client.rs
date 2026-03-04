@@ -1,70 +1,58 @@
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use futures_util::future::join_all;
 use tokio::time::sleep;
 
 use crate::error::{AiError, AiErrorCode};
-use crate::provider::ProviderAdapter;
+use crate::model_adapters::ModelAdapter;
+use crate::model_adapters::anthropic::{AnthropicAdapter, AnthropicAdapterSettings};
+use crate::model_adapters::google::{GoogleAdapter, GoogleAdapterSettings};
+use crate::model_adapters::openai::{OpenAiAdapter, OpenAiAdapterSettings};
+use crate::model_adapters::openai_compatible::{
+    OpenAiCompatibleAdapter, OpenAiCompatibleAdapterSettings,
+};
 use crate::tool::{ToolExecError, ToolRegistry};
 use crate::types::{
-    ContentPart, GenerateTextRequest, GenerateTextResponse, Message, MessageRole, ProviderKind,
-    RunToolsRequest, RunToolsResponse, TextStream, ToolCall, ToolResult, Usage, validate_messages,
-    validate_sampling,
+    ContentPart, FinishCallback, FinishReason, GenerateTextRequest, GenerateTextResponse, Message,
+    MessageRole, ModelRef, ProviderKind, RunToolsFinish, RunToolsPrepareStep, RunToolsPreparedStep,
+    RunToolsRequest, RunToolsResponse, RunToolsStart, RunToolsStep, RunToolsStepStart,
+    RunToolsToolCallFinish, RunToolsToolCallStart, TextStream, ToolCall, ToolCallFinishCallback,
+    ToolCallStartCallback, ToolResult, Usage, validate_messages, validate_sampling,
 };
 
-const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com";
-const DEFAULT_ANTHROPIC_BASE_URL: &str = "https://api.anthropic.com";
+enum ProviderRegistration {
+    OpenAi(OpenAiAdapterSettings),
+    Anthropic(AnthropicAdapterSettings),
+    Google(GoogleAdapterSettings),
+    OpenAiCompatible(OpenAiCompatibleAdapterSettings),
+    Custom {
+        provider: ProviderKind,
+        adapter: Arc<dyn ModelAdapter>,
+    },
+}
 
 pub struct AiClientBuilder {
-    openai_api_key: Option<String>,
-    anthropic_api_key: Option<String>,
-    openai_base_url: String,
-    anthropic_base_url: String,
     timeout: Duration,
     max_retries: u8,
     default_max_steps: u8,
     user_agent: String,
-    anthropic_api_version: String,
+    registration: Option<ProviderRegistration>,
 }
 
 impl Default for AiClientBuilder {
     fn default() -> Self {
         Self {
-            openai_api_key: None,
-            anthropic_api_key: None,
-            openai_base_url: DEFAULT_OPENAI_BASE_URL.to_string(),
-            anthropic_base_url: DEFAULT_ANTHROPIC_BASE_URL.to_string(),
             timeout: Duration::from_secs(30),
             max_retries: 2,
             default_max_steps: 8,
             user_agent: format!("oxide-ai-sdk/{}", env!("CARGO_PKG_VERSION")),
-            anthropic_api_version: "2023-06-01".to_string(),
+            registration: None,
         }
     }
 }
 
 impl AiClientBuilder {
-    pub fn openai_api_key(mut self, key: impl Into<String>) -> Self {
-        self.openai_api_key = Some(key.into());
-        self
-    }
-
-    pub fn anthropic_api_key(mut self, key: impl Into<String>) -> Self {
-        self.anthropic_api_key = Some(key.into());
-        self
-    }
-
-    pub fn openai_base_url(mut self, base_url: impl Into<String>) -> Self {
-        self.openai_base_url = base_url.into();
-        self
-    }
-
-    pub fn anthropic_base_url(mut self, base_url: impl Into<String>) -> Self {
-        self.anthropic_base_url = base_url.into();
-        self
-    }
-
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
         self
@@ -85,55 +73,116 @@ impl AiClientBuilder {
         self
     }
 
-    pub fn anthropic_api_version(mut self, version: impl Into<String>) -> Self {
-        self.anthropic_api_version = version.into();
+    pub fn with_openai(mut self, api_key: impl Into<String>, base_url: impl Into<String>) -> Self {
+        let mut settings = OpenAiAdapterSettings::new(api_key);
+        settings.base_url = base_url.into();
+        self.registration = Some(ProviderRegistration::OpenAi(settings));
+        self
+    }
+
+    pub fn with_anthropic(
+        mut self,
+        api_key: impl Into<String>,
+        base_url: impl Into<String>,
+        api_version: impl Into<String>,
+    ) -> Self {
+        let mut settings = AnthropicAdapterSettings::new(api_key);
+        settings.base_url = base_url.into();
+        settings.api_version = api_version.into();
+        self.registration = Some(ProviderRegistration::Anthropic(settings));
+        self
+    }
+
+    pub fn with_google(mut self, api_key: impl Into<String>, base_url: impl Into<String>) -> Self {
+        let mut settings = GoogleAdapterSettings::new(api_key);
+        settings.base_url = base_url.into();
+        self.registration = Some(ProviderRegistration::Google(settings));
+        self
+    }
+
+    pub fn with_openai_compatible(
+        mut self,
+        base_url: impl Into<String>,
+        api_key: Option<String>,
+    ) -> Self {
+        let mut settings = OpenAiCompatibleAdapterSettings::new(base_url);
+        settings.api_key = api_key;
+        self.registration = Some(ProviderRegistration::OpenAiCompatible(settings));
+        self
+    }
+
+    pub fn with_openai_compatible_settings(
+        mut self,
+        settings: OpenAiCompatibleAdapterSettings,
+    ) -> Self {
+        self.registration = Some(ProviderRegistration::OpenAiCompatible(settings));
+        self
+    }
+
+    pub fn with_adapter(mut self, provider: ProviderKind, adapter: Arc<dyn ModelAdapter>) -> Self {
+        self.registration = Some(ProviderRegistration::Custom { provider, adapter });
         self
     }
 
     pub fn build(self) -> Result<AiClient, AiError> {
-        if self.default_max_steps == 0 || self.default_max_steps > 32 {
+        let AiClientBuilder {
+            timeout,
+            max_retries,
+            default_max_steps,
+            user_agent,
+            registration,
+        } = self;
+
+        if default_max_steps == 0 || default_max_steps > 32 {
             return Err(AiError::new(
                 AiErrorCode::InvalidRequest,
                 "default_max_steps must be in 1..=32",
             ));
         }
 
-        let _http = Arc::new(
+        let registration = registration.ok_or_else(|| {
+            AiError::new(
+                AiErrorCode::InvalidRequest,
+                "provider is required; call one of `.with_openai(...)`, `.with_anthropic(...)`, `.with_google(...)`, `.with_openai_compatible(...)`",
+            )
+        })?;
+
+        let http = Arc::new(
             reqwest::Client::builder()
-                .timeout(self.timeout)
-                .user_agent(self.user_agent)
+                .timeout(timeout)
+                .user_agent(user_agent)
                 .build()
                 .map_err(|e| AiError::new(AiErrorCode::Transport, e.to_string()))?,
         );
 
-        #[cfg(feature = "openai")]
-        let openai_adapter = self.openai_api_key.clone().map(|key| {
-            Arc::new(crate::provider::openai::OpenAiAdapter {
-                base_url: self.openai_base_url.clone(),
-                api_key: key,
-                http: Arc::clone(&_http),
-            }) as Arc<dyn ProviderAdapter>
-        });
-        #[cfg(not(feature = "openai"))]
-        let openai_adapter = None;
-
-        #[cfg(feature = "anthropic")]
-        let anthropic_adapter = self.anthropic_api_key.clone().map(|key| {
-            Arc::new(crate::provider::anthropic::AnthropicAdapter {
-                base_url: self.anthropic_base_url.clone(),
-                api_key: key,
-                api_version: self.anthropic_api_version.clone(),
-                http: Arc::clone(&_http),
-            }) as Arc<dyn ProviderAdapter>
-        });
-        #[cfg(not(feature = "anthropic"))]
-        let anthropic_adapter = None;
+        let (provider, adapter): (ProviderKind, Arc<dyn ModelAdapter>) = match registration {
+            ProviderRegistration::OpenAi(settings) => (
+                ProviderKind::OpenAi,
+                Arc::new(OpenAiAdapter::from_settings(settings, Arc::clone(&http))),
+            ),
+            ProviderRegistration::Anthropic(settings) => (
+                ProviderKind::Anthropic,
+                Arc::new(AnthropicAdapter::from_settings(settings, Arc::clone(&http))),
+            ),
+            ProviderRegistration::Google(settings) => (
+                ProviderKind::Google,
+                Arc::new(GoogleAdapter::from_settings(settings, Arc::clone(&http))),
+            ),
+            ProviderRegistration::OpenAiCompatible(settings) => (
+                ProviderKind::OpenAiCompatible,
+                Arc::new(OpenAiCompatibleAdapter::from_settings(
+                    settings,
+                    Arc::clone(&http),
+                )),
+            ),
+            ProviderRegistration::Custom { provider, adapter } => (provider, adapter),
+        };
 
         Ok(AiClient {
-            max_retries: self.max_retries,
-            default_max_steps: self.default_max_steps,
-            openai_adapter,
-            anthropic_adapter,
+            max_retries,
+            default_max_steps,
+            provider,
+            adapter,
         })
     }
 }
@@ -141,13 +190,31 @@ impl AiClientBuilder {
 pub struct AiClient {
     max_retries: u8,
     default_max_steps: u8,
-    openai_adapter: Option<Arc<dyn ProviderAdapter>>,
-    anthropic_adapter: Option<Arc<dyn ProviderAdapter>>,
+    provider: ProviderKind,
+    adapter: Arc<dyn ModelAdapter>,
 }
 
 impl AiClient {
     pub fn builder() -> AiClientBuilder {
         AiClientBuilder::default()
+    }
+
+    pub async fn generate_prompt(
+        &self,
+        model: ModelRef,
+        prompt: impl Into<String>,
+    ) -> Result<GenerateTextResponse, AiError> {
+        let req = GenerateTextRequest::from_user_prompt(model, prompt);
+        self.generate_text(req).await
+    }
+
+    pub async fn stream_prompt(
+        &self,
+        model: ModelRef,
+        prompt: impl Into<String>,
+    ) -> Result<TextStream, AiError> {
+        let req = GenerateTextRequest::from_user_prompt(model, prompt);
+        self.stream_text(req).await
     }
 
     pub async fn generate_text(
@@ -157,7 +224,7 @@ impl AiClient {
         validate_messages(&req.messages)?;
         validate_sampling(req.temperature, req.top_p)?;
 
-        let adapter = self.adapter_for(req.model.provider)?;
+        let adapter = self.adapter_for_model(&req.model)?;
         self.call_with_retry(|| async { adapter.generate_text(&req).await })
             .await
     }
@@ -166,7 +233,7 @@ impl AiClient {
         validate_messages(&req.messages)?;
         validate_sampling(req.temperature, req.top_p)?;
 
-        let adapter = self.adapter_for(req.model.provider)?;
+        let adapter = self.adapter_for_model(&req.model)?;
         self.call_with_retry(|| async { adapter.stream_text(&req).await })
             .await
     }
@@ -185,63 +252,156 @@ impl AiClient {
 
         let mut messages = req.messages.clone();
         let mut usage_total = Usage::default();
+        let mut step_results = Vec::new();
 
-        if req.tools.is_empty() {
-            let response = self
-                .generate_text(GenerateTextRequest {
-                    model: req.model,
-                    messages: messages.clone(),
-                    temperature: req.temperature,
-                    top_p: None,
-                    max_output_tokens: req.max_output_tokens,
-                    stop_sequences: req.stop_sequences,
-                    tools: None,
-                })
-                .await?;
-            usage_total += response.usage.clone();
-            messages.push(assistant_message_from_response(&response));
-            return Ok(RunToolsResponse {
-                output_text: response.output_text,
-                steps: 1,
-                transcript: messages,
-                usage_total,
+        if let Some(callback) = &req.on_start {
+            callback.call(&RunToolsStart {
+                model: req.model.clone(),
+                messages: messages.clone(),
+                tool_count: req.tools.len(),
+                max_steps: resolved_max_steps,
             });
         }
 
-        let tool_registry = ToolRegistry::from_tools(req.tools.clone())?;
-        let tool_descriptors = req
-            .tools
-            .iter()
-            .map(|tool| tool.descriptor.clone())
-            .collect::<Vec<_>>();
-
         for step in 1..=resolved_max_steps {
-            let response = self
-                .generate_text(GenerateTextRequest {
+            let mut prepared_step = RunToolsPreparedStep {
+                model: req.model.clone(),
+                messages: messages.clone(),
+                tools: req.tools.clone(),
+                temperature: req.temperature,
+                max_output_tokens: req.max_output_tokens,
+                stop_sequences: req.stop_sequences.clone(),
+            };
+            if let Some(callback) = &req.prepare_step {
+                prepared_step = callback.call(&RunToolsPrepareStep {
+                    step,
                     model: req.model.clone(),
                     messages: messages.clone(),
+                    tools: req.tools.clone(),
                     temperature: req.temperature,
-                    top_p: None,
                     max_output_tokens: req.max_output_tokens,
                     stop_sequences: req.stop_sequences.clone(),
-                    tools: Some(tool_descriptors.clone()),
-                })
-                .await?;
-            usage_total += response.usage.clone();
-            messages.push(assistant_message_from_response(&response));
-
-            if response.tool_calls.is_empty() {
-                return Ok(RunToolsResponse {
-                    output_text: response.output_text,
-                    steps: step,
-                    transcript: messages,
-                    usage_total,
+                    previous_steps: step_results.clone(),
                 });
             }
 
-            let mut tool_messages =
-                execute_tool_calls(&tool_registry, &response.tool_calls).await?;
-            messages.append(&mut tool_messages);
+            validate_messages(&prepared_step.messages)?;
+            validate_sampling(prepared_step.temperature, None)?;
+
+            if let Some(callback) = &req.on_step_start {
+                callback.call(&RunToolsStepStart {
+                    step,
+                    messages: prepared_step.messages.clone(),
+                });
+            }
+
+            let response = self
+                .generate_text(GenerateTextRequest {
+                    model: prepared_step.model.clone(),
+                    messages: prepared_step.messages.clone(),
+                    temperature: prepared_step.temperature,
+                    top_p: None,
+                    max_output_tokens: prepared_step.max_output_tokens,
+                    stop_sequences: prepared_step.stop_sequences.clone(),
+                    tools: if prepared_step.tools.is_empty() {
+                        None
+                    } else {
+                        Some(
+                            prepared_step
+                                .tools
+                                .iter()
+                                .map(|tool| tool.descriptor.clone())
+                                .collect(),
+                        )
+                    },
+                })
+                .await?;
+            usage_total += response.usage.clone();
+            let mut next_messages = prepared_step.messages.clone();
+            next_messages.push(assistant_message_from_response(&response));
+
+            if response.tool_calls.is_empty() {
+                let step_state = RunToolsStep {
+                    step,
+                    output_text: response.output_text.clone(),
+                    finish_reason: response.finish_reason.clone(),
+                    usage: response.usage.clone(),
+                    tool_calls: Vec::new(),
+                    tool_results: Vec::new(),
+                };
+                step_results.push(step_state.clone());
+                if let Some(callback) = &req.on_step_finish {
+                    callback.call(&step_state);
+                }
+                let final_response = RunToolsResponse {
+                    output_text: response.output_text,
+                    steps: step,
+                    transcript: next_messages,
+                    usage_total,
+                };
+                emit_on_finish(
+                    req.on_finish.as_ref(),
+                    &final_response,
+                    &step_state.finish_reason,
+                    &step_results,
+                );
+                return Ok(final_response);
+            }
+
+            let tool_registry = ToolRegistry::from_tools(prepared_step.tools.clone())?;
+            let executed_tool_calls = execute_tool_calls(
+                &tool_registry,
+                &response.tool_calls,
+                step,
+                req.on_tool_call_start.as_ref(),
+                req.on_tool_call_finish.as_ref(),
+            )
+            .await?;
+            let mut tool_messages = executed_tool_calls
+                .iter()
+                .map(|entry| Message {
+                    role: MessageRole::Tool,
+                    parts: vec![ContentPart::ToolResult(entry.result.clone())],
+                    name: None,
+                })
+                .collect::<Vec<_>>();
+            let step_state = RunToolsStep {
+                step,
+                output_text: response.output_text.clone(),
+                finish_reason: response.finish_reason.clone(),
+                usage: response.usage.clone(),
+                tool_calls: response.tool_calls.clone(),
+                tool_results: executed_tool_calls
+                    .iter()
+                    .map(|entry| entry.result.clone())
+                    .collect(),
+            };
+            step_results.push(step_state.clone());
+            next_messages.append(&mut tool_messages);
+            if let Some(callback) = &req.on_step_finish {
+                callback.call(&step_state);
+            }
+            if req
+                .stop_when
+                .as_ref()
+                .is_some_and(|predicate| predicate.should_stop(&step_state))
+            {
+                let final_response = RunToolsResponse {
+                    output_text: response.output_text,
+                    steps: step,
+                    transcript: next_messages,
+                    usage_total,
+                };
+                emit_on_finish(
+                    req.on_finish.as_ref(),
+                    &final_response,
+                    &step_state.finish_reason,
+                    &step_results,
+                );
+                return Ok(final_response);
+            }
+
+            messages = next_messages;
         }
 
         Err(AiError::new(
@@ -253,21 +413,26 @@ impl AiClient {
         ))
     }
 
-    fn adapter_for(&self, provider: ProviderKind) -> Result<&dyn ProviderAdapter, AiError> {
-        match provider {
-            ProviderKind::OpenAi => self.openai_adapter.as_deref().ok_or_else(|| {
-                AiError::new(
-                    AiErrorCode::InvalidRequest,
-                    "OpenAI adapter unavailable: missing API key or feature disabled",
-                )
-            }),
-            ProviderKind::Anthropic => self.anthropic_adapter.as_deref().ok_or_else(|| {
-                AiError::new(
-                    AiErrorCode::InvalidRequest,
-                    "Anthropic adapter unavailable: missing API key or feature disabled",
-                )
-            }),
+    fn adapter_for_model(&self, model: &ModelRef) -> Result<&dyn ModelAdapter, AiError> {
+        let requested_provider = model.provider_kind().ok_or_else(|| {
+            AiError::new(
+                AiErrorCode::InvalidRequest,
+                format!("unknown provider `{}`", model.provider()),
+            )
+        })?;
+
+        if self.provider != requested_provider {
+            return Err(AiError::new(
+                AiErrorCode::InvalidRequest,
+                format!(
+                    "provider mismatch: this client is configured for `{}`, but model requires `{}`",
+                    self.provider.as_slug(),
+                    requested_provider.as_slug()
+                ),
+            ));
         }
+
+        Ok(self.adapter.as_ref())
     }
 
     async fn call_with_retry<T, F, Fut>(&self, mut op: F) -> Result<T, AiError>
@@ -317,10 +482,38 @@ fn assistant_message_from_response(response: &GenerateTextResponse) -> Message {
     }
 }
 
+fn emit_on_finish(
+    callback: Option<&FinishCallback>,
+    response: &RunToolsResponse,
+    finish_reason: &FinishReason,
+    step_results: &[RunToolsStep],
+) {
+    let Some(callback) = callback else {
+        return;
+    };
+
+    callback.call(&RunToolsFinish {
+        output_text: response.output_text.clone(),
+        step_count: response.steps,
+        finish_reason: finish_reason.clone(),
+        usage_total: response.usage_total.clone(),
+        transcript: response.transcript.clone(),
+        step_results: step_results.to_vec(),
+    });
+}
+
+#[derive(Debug, Clone)]
+struct ExecutedToolCall {
+    result: ToolResult,
+}
+
 async fn execute_tool_calls(
     registry: &ToolRegistry,
     calls: &[ToolCall],
-) -> Result<Vec<Message>, AiError> {
+    step: u8,
+    on_tool_call_start: Option<&ToolCallStartCallback>,
+    on_tool_call_finish: Option<&ToolCallFinishCallback>,
+) -> Result<Vec<ExecutedToolCall>, AiError> {
     let mut tasks = Vec::with_capacity(calls.len());
     for call in calls {
         let Some(registered) = registry.resolve(&call.tool_name) else {
@@ -343,18 +536,27 @@ async fn execute_tool_calls(
                 )
             })?;
 
+        if let Some(callback) = on_tool_call_start {
+            callback.call(&RunToolsToolCallStart {
+                step,
+                tool_call: call.clone(),
+            });
+        }
+
         let executor = Arc::clone(&registered.tool.executor);
-        let call_id = call.call_id.clone();
+        let call = call.clone();
         let args_json = call.args_json.clone();
         tasks.push(async move {
+            let started_at = Instant::now();
             let result = executor.execute(args_json).await;
-            (call_id, result)
+            let duration_ms = started_at.elapsed().as_millis().min(u64::MAX as u128) as u64;
+            (call, result, duration_ms)
         });
     }
 
     let results = join_all(tasks).await;
-    let mut messages = Vec::with_capacity(results.len());
-    for (call_id, result) in results {
+    let mut executions = Vec::with_capacity(results.len());
+    for (call, result, duration_ms) in results {
         let (output_json, is_error) = match result {
             Ok(output_json) => (output_json, false),
             Err(ToolExecError::Execution(message)) => {
@@ -363,27 +565,56 @@ async fn execute_tool_calls(
             Err(ToolExecError::Timeout) => (serde_json::json!({ "error": "timeout" }), true),
         };
 
-        messages.push(Message {
-            role: MessageRole::Tool,
-            parts: vec![ContentPart::ToolResult(ToolResult {
-                call_id,
-                output_json,
-                is_error,
-            })],
-            name: None,
+        let tool_result = ToolResult {
+            call_id: call.call_id.clone(),
+            output_json,
+            is_error,
+        };
+
+        if let Some(callback) = on_tool_call_finish {
+            callback.call(&RunToolsToolCallFinish {
+                step,
+                tool_call: call.clone(),
+                tool_result: tool_result.clone(),
+                duration_ms,
+            });
+        }
+
+        executions.push(ExecutedToolCall {
+            result: tool_result,
         });
     }
 
-    Ok(messages)
+    Ok(executions)
 }
 
 #[cfg(test)]
 mod tests {
     use super::AiClient;
+    use crate::{AiErrorCode, openai};
 
     #[tokio::test]
-    async fn builder_defaults_are_valid() {
-        let client = AiClient::builder().build();
-        assert!(client.is_ok());
+    async fn build_requires_provider_registration() {
+        let err = match AiClient::builder().build() {
+            Ok(_) => panic!("provider registration should be required"),
+            Err(err) => err,
+        };
+        assert_eq!(err.code, AiErrorCode::InvalidRequest);
+        assert!(err.message.contains("provider is required"));
+    }
+
+    #[tokio::test]
+    async fn rejects_provider_mismatch() {
+        let client = AiClient::builder()
+            .with_google("key", "https://generativelanguage.googleapis.com/v1beta")
+            .build()
+            .expect("client should build");
+        let err = client
+            .generate_prompt(openai("gpt-4o-mini").expect("model should parse"), "hello")
+            .await
+            .expect_err("provider mismatch should fail");
+
+        assert_eq!(err.code, AiErrorCode::InvalidRequest);
+        assert!(err.message.contains("provider mismatch"));
     }
 }

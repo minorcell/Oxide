@@ -1,11 +1,12 @@
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use jsonschema::{Validator, validator_for};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::error::{AiError, AiErrorCode};
 
@@ -36,12 +37,77 @@ impl std::fmt::Debug for Tool {
     }
 }
 
+impl Tool {
+    pub fn from_parts(descriptor: ToolDescriptor, executor: Arc<dyn ToolExecutor>) -> Self {
+        Self {
+            descriptor,
+            executor,
+        }
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ToolExecError {
     #[error("execution failed: {0}")]
     Execution(String),
     #[error("timeout")]
     Timeout,
+}
+
+pub fn tool(name: impl Into<String>) -> ToolBuilder {
+    ToolBuilder::new(name)
+}
+
+pub struct ToolBuilder {
+    descriptor: ToolDescriptor,
+}
+
+impl ToolBuilder {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            descriptor: ToolDescriptor {
+                name: name.into(),
+                description: String::new(),
+                input_schema: json!({
+                    "type": "object",
+                    "additionalProperties": true
+                }),
+            },
+        }
+    }
+
+    pub fn description(mut self, description: impl Into<String>) -> Self {
+        self.descriptor.description = description.into();
+        self
+    }
+
+    pub fn input_schema(mut self, input_schema: Value) -> Self {
+        self.descriptor.input_schema = input_schema;
+        self
+    }
+
+    pub fn execute<F, Fut>(self, executor: F) -> Tool
+    where
+        F: Fn(Value) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<Value, ToolExecError>> + Send + 'static,
+    {
+        Tool::from_parts(self.descriptor, Arc::new(FnToolExecutor { executor }))
+    }
+}
+
+struct FnToolExecutor<F> {
+    executor: F,
+}
+
+#[async_trait]
+impl<F, Fut> ToolExecutor for FnToolExecutor<F>
+where
+    F: Fn(Value) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<Value, ToolExecError>> + Send + 'static,
+{
+    async fn execute(&self, args: Value) -> Result<Value, ToolExecError> {
+        (self.executor)(args).await
+    }
 }
 
 pub(crate) struct RegisteredTool {
@@ -107,7 +173,7 @@ mod tests {
     use async_trait::async_trait;
     use serde_json::json;
 
-    use super::{Tool, ToolDescriptor, ToolExecError, ToolExecutor, ToolRegistry};
+    use super::{Tool, ToolDescriptor, ToolExecError, ToolExecutor, ToolRegistry, tool};
 
     struct EchoTool;
 
@@ -149,5 +215,26 @@ mod tests {
         let entry = registry.resolve("echo").unwrap();
         assert!(entry.validator.validate(&json!({"x": 1})).is_ok());
         assert!(entry.validator.validate(&json!({"y": 1})).is_err());
+    }
+
+    #[tokio::test]
+    async fn tool_builder_executes_closure() {
+        let echo_tool = tool("echo")
+            .description("Echo input")
+            .input_schema(json!({
+                "type": "object",
+                "properties": {
+                    "x": { "type": "string" }
+                },
+                "required": ["x"]
+            }))
+            .execute(|args| async move { Ok(args) });
+
+        let output = echo_tool
+            .executor
+            .execute(json!({ "x": "ok" }))
+            .await
+            .expect("tool should execute");
+        assert_eq!(output, json!({ "x": "ok" }));
     }
 }
