@@ -60,7 +60,7 @@ CollectingEvents -> VerifyOrder -> VerifyTerminalEvent -> Pass/Fail
 必须验证映射一致性：
 - 401/403 -> `AuthFailed`
 - 429 -> `RateLimited`
-- 500/502/503/504/529 -> `ProviderServerError`
+- 500-599/529 -> `ProviderServerError`
 - 非法 JSON -> `InvalidResponse` 或 `StreamProtocol`
 - 未知工具 -> `UnknownTool`
 - 参数非法 -> `InvalidToolArgs`

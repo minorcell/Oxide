@@ -35,7 +35,7 @@ pub struct AiClientBuilder;
 impl AiClient {
     pub fn builder() -> AiClientBuilder;
     pub async fn generate_text(&self, req: GenerateTextRequest) -> Result<GenerateTextResponse, AiError>;
-    pub async fn stream_text(&self, req: StreamTextRequest) -> Result<TextStream, AiError>;
+    pub async fn stream_text(&self, req: GenerateTextRequest) -> Result<TextStream, AiError>;
     pub async fn run_tools(&self, req: RunToolsRequest) -> Result<RunToolsResponse, AiError>;
 }
 
@@ -120,6 +120,7 @@ else:
 ## 8. 与其他模块的依赖契约
 - 依赖 `01-architecture.md` 提供分层边界。
 - 依赖 `02-types-and-model.md` 提供统一类型定义。
+- 依赖 `12-tool-definition.md` 提供工具定义的权威来源。
 - 依赖 `08-error-handling.md` 提供统一错误分类与重试策略。
 - 依赖 `10-testing-plan.md` 提供验收矩阵。
 - 依赖 `11-release-plan.md` 提供发布门禁和 semver 约束。

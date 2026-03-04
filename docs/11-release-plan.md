@@ -13,7 +13,7 @@
 - `AiClient` / `AiClientBuilder`
 - `generate_text` / `stream_text` / `run_tools`
 - `ProviderKind` / `ModelRef` / `Message` / `StreamEvent`
-- `ToolExecutor` / `ToolSpec`
+- `ToolDescriptor` / `Tool` / `ToolExecutor` / `ToolRegistry`
 - `AiError` / `AiErrorCode`
 
 `Cargo.toml` 目标结构：

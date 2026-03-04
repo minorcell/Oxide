@@ -75,8 +75,10 @@ call_with_retry(op):
 `run_tools` 主循环伪代码：
 ```text
 messages = req.messages
-for step in 1..=req.max_steps:
-    resp = generate(messages)
+resolved_max_steps = req.max_steps.unwrap_or(builder.default_max_steps)
+descriptors = req.tools.iter().map(|t| t.descriptor.clone()).collect()
+for step in 1..=resolved_max_steps:
+    resp = generate(messages, tools=descriptors)
     if resp.tool_calls.is_empty():
         return final(resp, step, messages)
     results = execute_tools_concurrently(resp.tool_calls)
@@ -87,7 +89,8 @@ return MaxStepsExceeded(partial=messages)
 ## 5. 边界条件与失败模式
 - 边界：
 - 请求中的 `model.provider` 必须已启用对应 feature。
-- `run_tools.max_steps` 为 0 时视为 `InvalidRequest`。
+- `run_tools.max_steps=Some(0)` 视为 `InvalidRequest`。
+- `run_tools.max_steps=None` 时使用 builder 默认值（默认 8）。
 - 失败模式：
 - API key 缺失导致请求前失败。
 - 重试后仍失败，返回最后一次错误并保留上下文。
@@ -110,7 +113,7 @@ return MaxStepsExceeded(partial=messages)
 - Provider 返回 401/429/500 映射正确。
 - 边界：
 - `max_retries=0` 不触发 sleep/backoff。
-- `default_max_steps` 被请求级参数覆盖。
+- `default_max_steps` 被 `run_tools.max_steps=Some(x)` 覆盖。
 
 ## 8. 与其他模块的依赖契约
 - 依赖 `02-types-and-model.md` 的请求/响应/流类型。

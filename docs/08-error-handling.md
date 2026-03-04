@@ -66,7 +66,7 @@ fn classify(err):
         map status:
           401|403 => AuthFailed(false)
           429 => RateLimited(true)
-          500|502|503|504|529 => ProviderServerError(true)
+          500..=599 or 529 => ProviderServerError(true)
           _ => InvalidRequest(false)
     if err is sse_protocol: return StreamProtocol(false)
     if err is invalid_json_or_shape: return InvalidResponse(false)
@@ -91,7 +91,7 @@ delay = min(base * 2^attempt + jitter(0..100), cap)
 - `InvalidRequest`: 本地参数错误、provider 4xx（非 401/403/429）。
 - `AuthFailed`: 401/403。
 - `RateLimited`: 429。
-- `ProviderServerError`: 5xx/529。
+- `ProviderServerError`: 500-599/529。
 - `Transport`: DNS/TLS/连接中断。
 - `Timeout`: 客户端超时。
 - `StreamProtocol`: SSE 帧、增量协议不合法。
@@ -99,6 +99,10 @@ delay = min(base * 2^attempt + jitter(0..100), cap)
 - `InvalidToolArgs`: 参数解析或 schema 校验失败。
 - `MaxStepsExceeded`: 工具循环未收敛。
 - `InvalidResponse`: JSON 结构与预期不匹配。
+
+工具执行映射规则（来自 `12-tool-definition.md`）：
+- `ToolExecError::Execution`、`ToolExecError::Timeout`：可恢复，回填 `ToolResult.is_error=true`，不直接抛顶层 `AiError`。
+- `UnknownTool`、`InvalidToolArgs`、结构破坏错误：不可恢复，直接返回 `AiError`。
 
 ## 7. 测试用例列表（成功/失败/边界）
 - 成功：
@@ -116,6 +120,7 @@ delay = min(base * 2^attempt + jitter(0..100), cap)
 - `04/05-provider-*.md` 必须把 provider 错误信息映射到本错误模型。
 - `06-streaming.md` 的协议错误必须归入 `StreamProtocol`。
 - `07-tool-loop.md` 的工具异常必须归入 `UnknownTool` 或 `InvalidToolArgs`。
+- `12-tool-definition.md` 定义 `ToolExecError` 的可恢复/不可恢复边界，本文件负责顶层映射。
 
 ## 9. 非目标与后续扩展点
 - 非目标：

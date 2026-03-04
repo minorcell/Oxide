@@ -59,11 +59,13 @@ Init -> Streaming -> Done
 规则：
 - 在 `Done` 之后不得再发任何事件。
 - 若出现协议错误，立刻输出错误并终止流。
+- 当模型因 `stop_sequences` 触发终止时，流应正常输出 `Done`，不作为错误处理。
 
 ## 5. 边界条件与失败模式
 - 边界：
 - 不保证 provider 事件与 chunk 边界对齐，必须支持跨 chunk 组帧。
 - 支持空 `event:` 字段，按 `data` 默认事件解析。
+- `stop_sequences` 命中属于正常终止路径，必须收敛到 `StreamEvent::Done`。
 - 失败模式：
 - UTF-8 解码失败 -> `StreamProtocol`。
 - `data:` 非法 JSON（当 provider 要求 JSON）-> `StreamProtocol`。
@@ -84,6 +86,7 @@ Init -> Streaming -> Done
 - 边界：
 - 空行、注释行、keepalive `ping` 被正确忽略或转换。
 - 同一响应中既有文本又有工具调用事件时顺序稳定。
+- 命中 `stop_sequences` 时输出终止事件 `Done`，且不产生错误事件。
 
 ## 8. 与其他模块的依赖契约
 - 由 `04-provider-openai.md` 和 `05-provider-anthropic.md` 调用。
