@@ -3,4 +3,30 @@ name = "Oxide"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "oxide"
+path = "src/lib.rs"
+
+[features]
+default = ["openai", "anthropic"]
+openai = []
+anthropic = []
+axum = ["dep:axum"]
+
 [dependencies]
+async-stream = "0.3"
+async-trait = "0.1"
+axum = { version = "0.8", optional = true }
+futures-core = "0.3"
+futures-util = "0.3"
+jsonschema = { version = "0.30", default-features = false }
+regex = "1.11"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+tokio = { version = "1.44", features = ["macros", "rt-multi-thread", "time"] }
+
+[dev-dependencies]
+tokio = { version = "1.44", features = ["macros", "rt-multi-thread"] }
+wiremock = "0.6"
