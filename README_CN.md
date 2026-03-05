@@ -1,5 +1,7 @@
 # Aquaregia
 
+> 注：在 v0.2.0 版本前，Aquaregia 处于快速迭代阶段，API 可能会有破坏性变更，谨慎使用。
+
 Aquaregia 是一个 provider-agnostic 的 Rust AI 工具包，用于构建 AI 应用与可调用工具的 Agent。
 
 它提供统一的多供应商 API（OpenAI、Anthropic、Google、OpenAI-compatible），同时支持流式输出和多步工具执行循环。
@@ -27,11 +29,11 @@ cargo check --no-default-features --features anthropic
 一个 `LlmClient` 绑定一个 provider 配置。  
 每次调用可以直接传模型字符串（例如 `"deepseek-chat"`）。
 
-| Provider          | 注册 API                                                                                                | 模型参数                    |
-| ----------------- | ------------------------------------------------------------------------------------------------------- | --------------------------- |
-| OpenAI            | `LlmClient::openai(api_key)`（可选 `.base_url(...)`）                                                    | `"gpt-4o-mini"`             |
-| Anthropic         | `LlmClient::anthropic(api_key)`（可选 `.base_url(...)`、`.api_version(...)`）                            | `"claude-3-5-haiku-latest"` |
-| Google            | `LlmClient::google(api_key)`（可选 `.base_url(...)`）                                                    | `"gemini-2.0-flash"`        |
+| Provider          | 注册 API                                                                                                                                                     | 模型参数                    |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------- |
+| OpenAI            | `LlmClient::openai(api_key)`（可选 `.base_url(...)`）                                                                                                        | `"gpt-4o-mini"`             |
+| Anthropic         | `LlmClient::anthropic(api_key)`（可选 `.base_url(...)`、`.api_version(...)`）                                                                                | `"claude-3-5-haiku-latest"` |
+| Google            | `LlmClient::google(api_key)`（可选 `.base_url(...)`）                                                                                                        | `"gemini-2.0-flash"`        |
 | OpenAI-compatible | `LlmClient::openai_compatible(base_url).api_key(...)` / `LlmClient::openai_compatible_no_auth(base_url)` / `LlmClient::openai_compatible_with_settings(...)` | `"deepseek-chat"`           |
 
 ## Usage
@@ -191,7 +193,7 @@ let client = LlmClient::openai_compatible_with_settings(settings)
 
 | 示例             | 命令                                           | 重点                              |
 | ---------------- | ---------------------------------------------- | --------------------------------- |
-| 基础文本生成     | `cargo run --example basic_generate`           | 一次性 `generate`                |
+| 基础文本生成     | `cargo run --example basic_generate`           | 一次性 `generate`                 |
 | 基础流式输出     | `cargo run --example basic_stream`             | `StreamEvent` 处理                |
 | 最小 Agent       | `cargo run --example agent_minimal`            | `Agent::builder` + 单工具         |
 | 工具循环保护     | `cargo run --example tools_max_steps`          | 多步工具调用 + `max_steps`        |
