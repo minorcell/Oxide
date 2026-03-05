@@ -1,6 +1,6 @@
 # Examples Guide
 
-本目录展示 Oxide 的推荐用法（对齐 AI SDK 风格）。
+本目录展示 Aquaregia 的推荐用法（对齐 AI SDK 风格）。
 
 ## 运行前准备
 

@@ -1,4 +1,4 @@
-use oxide::{
+use aquaregia::{
     Agent, AgentCallPlan, AiClient, ContentPart, Message, MessageRole, RunToolsPrepareStep,
     RunToolsPreparedStep, openai_compatible, tool,
 };

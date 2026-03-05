@@ -1,4 +1,4 @@
-# Contributing to Oxide
+# Contributing to Aquaregia
 
 Thanks for your interest in contributing.
 

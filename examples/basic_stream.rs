@@ -1,5 +1,5 @@
 use futures_util::StreamExt;
-use oxide::{AiClient, StreamEvent, openai_compatible};
+use aquaregia::{AiClient, StreamEvent, openai_compatible};
 
 const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
 const DEFAULT_DEEPSEEK_MODEL: &str = "deepseek-chat";

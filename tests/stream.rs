@@ -1,5 +1,5 @@
 use futures_util::StreamExt;
-use oxide::{
+use aquaregia::{
     AiClient, ContentPart, GenerateTextRequest, Message, MessageRole, StreamEvent, anthropic,
 };
 use wiremock::matchers::{method, path};

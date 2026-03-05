@@ -46,7 +46,7 @@ impl Default for AiClientBuilder {
             timeout: Duration::from_secs(30),
             max_retries: 2,
             default_max_steps: 8,
-            user_agent: format!("oxide-ai-sdk/{}", env!("CARGO_PKG_VERSION")),
+            user_agent: format!("aquaregia-ai-sdk/{}", env!("CARGO_PKG_VERSION")),
             registration: None,
         }
     }

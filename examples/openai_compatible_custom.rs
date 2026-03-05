@@ -1,4 +1,4 @@
-use oxide::{AiClient, OpenAiCompatibleAdapterSettings, openai_compatible};
+use aquaregia::{AiClient, OpenAiCompatibleAdapterSettings, openai_compatible};
 
 const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
 const DEFAULT_DEEPSEEK_MODEL: &str = "deepseek-chat";
@@ -20,10 +20,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 可选：部分兼容服务需要额外 header 或 query 参数。
     settings
         .headers
-        .insert("x-trace-source".to_string(), "oxide-example".to_string());
+        .insert("x-trace-source".to_string(), "aquaregia-example".to_string());
     settings
         .query_params
-        .insert("source".to_string(), "oxide".to_string());
+        .insert("source".to_string(), "aquaregia".to_string());
 
     // 默认是 /v1/chat/completions，这里保持默认也可。
     settings.chat_completions_path = "/v1/chat/completions".to_string();

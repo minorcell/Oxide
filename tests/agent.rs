@@ -1,4 +1,4 @@
-use oxide::{Agent, AiClient, Message, RunToolsPreparedStep, openai, tool};
+use aquaregia::{Agent, AiClient, Message, RunToolsPreparedStep, openai, tool};
 use serde_json::json;
 use wiremock::matchers::{body_string_contains, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};

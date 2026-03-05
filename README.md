@@ -1,10 +1,10 @@
-# Oxide
+# Aquaregia
 
-Use Oxide to quickly build your Rust AI application, with a unified interface to multiple providers and powerful tool execution capabilities.
+Use Aquaregia to quickly build your Rust AI application, with a unified interface to multiple providers and powerful tool execution capabilities.
 
 [中文文档 (README_CN.md)](./README_CN.md)
 
-Oxide is a provider-agnostic Rust toolkit for AI apps and agents.
+Aquaregia is a provider-agnostic Rust toolkit for AI apps and agents.
 Recommended path: run first, understand layers second, then unlock advanced control.
 
 ## Start Here
@@ -20,9 +20,9 @@ Recommended path: run first, understand layers second, then unlock advanced cont
 
 ```toml
 [dependencies]
-oxide = { path = "." }
+aquaregia = { path = "." }
 # or after publishing to crates.io:
-# oxide = "x.y.z"
+# aquaregia = "x.y.z"
 ```
 
 ### Environment Variables (DeepSeek example)
@@ -36,7 +36,7 @@ export DEEPSEEK_MODEL="deepseek-chat"                  # optional
 ### First Successful Call (2 minutes)
 
 ```rust
-use oxide::{AiClient, openai_compatible};
+use aquaregia::{AiClient, openai_compatible};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -108,7 +108,7 @@ More examples: [examples/README.md](./examples/README.md)
 ### Agent + Tool Loop
 
 ```rust
-use oxide::{Agent, openai_compatible, tool};
+use aquaregia::{Agent, openai_compatible, tool};
 use serde_json::json;
 
 let weather = tool("get_weather")
@@ -143,7 +143,7 @@ let agent = Agent::builder(client)
         next
     })
     .prepare_step(|event| {
-        let mut next = oxide::RunToolsPreparedStep {
+        let mut next = aquaregia::RunToolsPreparedStep {
             model: event.model.clone(),
             messages: event.messages.clone(),
             tools: event.tools.clone(),
@@ -152,7 +152,7 @@ let agent = Agent::builder(client)
             stop_sequences: event.stop_sequences.clone(),
         };
         next.messages
-            .push(oxide::Message::system_text(format!("step={}", event.step)));
+            .push(aquaregia::Message::system_text(format!("step={}", event.step)));
         next
     })
     .build()?;

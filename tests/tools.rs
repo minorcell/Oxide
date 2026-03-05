@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use oxide::{
+use aquaregia::{
     AiClient, AiErrorCode, ContentPart, FinishCallback, Message, MessageRole, PrepareStepCallback,
     RunToolsPreparedStep, RunToolsRequest, StartCallback, StepCallback, StepStartCallback, Tool,
     ToolCallFinishCallback, ToolCallStartCallback, ToolDescriptor, ToolExecError, ToolExecutor,

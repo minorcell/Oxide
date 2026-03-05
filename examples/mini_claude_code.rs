@@ -1,4 +1,4 @@
-use oxide::{
+use aquaregia::{
     AiClient, Message, RunToolsRequest, RunToolsStep, StepCallback, ToolExecError,
     openai_compatible, tool,
 };
@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model_ref = openai_compatible(model.clone())?;
     let tools = build_tools();
 
-    println!("mini_claude_code (oxide example)");
+    println!("mini_claude_code (aquaregia example)");
     println!("model: openai-compatible/{}", model);
     println!("base_url: {}", base_url);
     println!("cwd: {}", std::env::current_dir()?.display());
@@ -115,7 +115,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn build_tools() -> Vec<oxide::Tool> {
+fn build_tools() -> Vec<aquaregia::Tool> {
     vec![
         tool("bash")
             .description("Execute a shell command in current workspace")

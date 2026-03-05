@@ -1,4 +1,4 @@
-use oxide::{AiClient, openai_compatible};
+use aquaregia::{AiClient, openai_compatible};
 
 const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
 const DEFAULT_DEEPSEEK_MODEL: &str = "deepseek-chat";

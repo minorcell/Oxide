@@ -1,10 +1,10 @@
-# Oxide
+# Aquaregia
 
-使用 Oxide 快速构建您的 Rust AI 应用，具有统一的多供应商接口和强大的工具执行能力。
+使用 Aquaregia 快速构建您的 Rust AI 应用，具有统一的多供应商接口和强大的工具执行能力。
 
 [English README](./README.md)
 
-Oxide 是一个面向 Rust 的 provider-agnostic AI 工具包。
+Aquaregia 是一个面向 Rust 的 provider-agnostic AI 工具包。
 推荐上手路径：先跑起来，再理解分层，最后使用高级控制能力。
 
 ## 快速入口
@@ -21,9 +21,9 @@ Oxide 是一个面向 Rust 的 provider-agnostic AI 工具包。
 
 ```toml
 [dependencies]
-oxide = { path = "." }
+aquaregia = { path = "." }
 # 发布到 crates.io 后可替换为版本号：
-# oxide = "x.y.z"
+# aquaregia = "x.y.z"
 ```
 
 ### 环境变量（以 DeepSeek 为例）
@@ -37,7 +37,7 @@ export DEEPSEEK_MODEL="deepseek-chat"                  # 可选
 ### 首次成功调用（2 分钟）
 
 ```rust
-use oxide::{AiClient, openai_compatible};
+use aquaregia::{AiClient, openai_compatible};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -111,7 +111,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Agent + 工具循环
 
 ```rust
-use oxide::{Agent, openai_compatible, tool};
+use aquaregia::{Agent, openai_compatible, tool};
 use serde_json::json;
 
 let weather = tool("get_weather")
@@ -146,7 +146,7 @@ let agent = Agent::builder(client)
         next
     })
     .prepare_step(|event| {
-        let mut next = oxide::RunToolsPreparedStep {
+        let mut next = aquaregia::RunToolsPreparedStep {
             model: event.model.clone(),
             messages: event.messages.clone(),
             tools: event.tools.clone(),
@@ -155,7 +155,7 @@ let agent = Agent::builder(client)
             stop_sequences: event.stop_sequences.clone(),
         };
         next.messages
-            .push(oxide::Message::system_text(format!("step={}", event.step)));
+            .push(aquaregia::Message::system_text(format!("step={}", event.step)));
         next
     })
     .build()?;

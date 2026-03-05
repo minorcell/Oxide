@@ -1,4 +1,4 @@
-use oxide::{AiClient, OpenAiCompatibleAdapterSettings, google, openai_compatible};
+use aquaregia::{AiClient, OpenAiCompatibleAdapterSettings, google, openai_compatible};
 use serde_json::json;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};

@@ -1,4 +1,4 @@
-use oxide::{
+use aquaregia::{
     AiClient, AiErrorCode, ContentPart, GenerateTextRequest, Message, MessageRole, openai,
 };
 use serde_json::json;

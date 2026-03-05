@@ -1,4 +1,4 @@
-use oxide::{Agent, AiClient, openai_compatible, tool};
+use aquaregia::{Agent, AiClient, openai_compatible, tool};
 use serde_json::json;
 
 const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
