@@ -18,11 +18,8 @@ Recommended path: run first, understand layers second, then unlock advanced cont
 
 ### Installation
 
-```toml
-[dependencies]
-aquaregia = { path = "." }
-# or after publishing to crates.io:
-# aquaregia = "x.y.z"
+```bash
+cargo add aquaregia
 ```
 
 ### Environment Variables (DeepSeek example)

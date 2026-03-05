@@ -15,15 +15,13 @@ Aquaregia 是一个面向 Rust 的 provider-agnostic AI 工具包。
 - [开源协作](#cn-open-source)
 
 <a id="cn-get-running-first"></a>
+
 ## 1）先跑起来
 
 ### 安装
 
-```toml
-[dependencies]
-aquaregia = { path = "." }
-# 发布到 crates.io 后可替换为版本号：
-# aquaregia = "x.y.z"
+```bash
+cargo add aquaregia
 ```
 
 ### 环境变量（以 DeepSeek 为例）
@@ -66,18 +64,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ### 示例学习路径
 
-| 阶段 | 命令 | 你会学到什么 |
-| --- | --- | --- |
-| 1 | `cargo run --example basic_generate` | 最小一次性生成 |
-| 2 | `cargo run --example basic_stream` | 流式输出处理 |
-| 3 | `cargo run --example agent_minimal` | 第一个 Agent + 单工具 |
-| 4 | `cargo run --example tools_max_steps` | 多步工具循环与收敛保护 |
-| 5 | `cargo run --example prepare_hooks` | 按调用/按步骤动态控制 |
-| 6 | `cargo run --example openai_compatible_custom` | OpenAI-compatible 自定义 headers/query/path |
+| 阶段 | 命令                                           | 你会学到什么                                |
+| ---- | ---------------------------------------------- | ------------------------------------------- |
+| 1    | `cargo run --example basic_generate`           | 最小一次性生成                              |
+| 2    | `cargo run --example basic_stream`             | 流式输出处理                                |
+| 3    | `cargo run --example agent_minimal`            | 第一个 Agent + 单工具                       |
+| 4    | `cargo run --example tools_max_steps`          | 多步工具循环与收敛保护                      |
+| 5    | `cargo run --example prepare_hooks`            | 按调用/按步骤动态控制                       |
+| 6    | `cargo run --example openai_compatible_custom` | OpenAI-compatible 自定义 headers/query/path |
 
 更多示例： [examples/README.md](./examples/README.md)
 
 <a id="cn-understand-layers"></a>
+
 ## 2）再理解分层
 
 ### 统一 Provider 架构
@@ -88,24 +87,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ### Provider 注册 + 模型选择
 
-| 适配类型 | 注册方法 | 模型选择 |
-| --- | --- | --- |
-| OpenAI GPT | `.with_openai(api_key, base_url)` | `openai("gpt-4o-mini")` |
-| Anthropic Claude | `.with_anthropic(api_key, base_url, api_version)` | `anthropic("claude-3-5-haiku-latest")` |
-| Google Gemini | `.with_google(api_key, base_url)` | `google("gemini-2.0-flash")` |
-| OpenAI 兼容接口 | `.with_openai_compatible(base_url, api_key)` / `.with_openai_compatible_settings(...)` | `openai_compatible("deepseek-chat")` |
+| 适配类型         | 注册方法                                                                               | 模型选择                               |
+| ---------------- | -------------------------------------------------------------------------------------- | -------------------------------------- |
+| OpenAI GPT       | `.with_openai(api_key, base_url)`                                                      | `openai("gpt-4o-mini")`                |
+| Anthropic Claude | `.with_anthropic(api_key, base_url, api_version)`                                      | `anthropic("claude-3-5-haiku-latest")` |
+| Google Gemini    | `.with_google(api_key, base_url)`                                                      | `google("gemini-2.0-flash")`           |
+| OpenAI 兼容接口  | `.with_openai_compatible(base_url, api_key)` / `.with_openai_compatible_settings(...)` | `openai_compatible("deepseek-chat")`   |
 
 ### 分层地图
 
-| 分层 | 职责 | 核心 API |
-| --- | --- | --- |
-| Provider 绑定层 | 配置传输、重试与 provider adapter | `AiClient::builder()` |
-| 模型选择层 | 显式区分 provider/model | `openai(...)`、`anthropic(...)`、`google(...)`、`openai_compatible(...)` |
-| 生成层 | 一次性 + 流式文本生成 | `generate_prompt`、`stream_prompt`、`generate_text`、`stream_text` |
-| 工具运行时层 | 多步推理 + 工具执行循环 | `run_tools`、`tool(...)`、`max_steps`、`stop_when` |
-| Agent 封装层 | 模型 + 指令 + 工具 + hooks 的复用工作流 | `Agent::builder(...).generate_prompt(...)` |
+| 分层            | 职责                                    | 核心 API                                                                 |
+| --------------- | --------------------------------------- | ------------------------------------------------------------------------ |
+| Provider 绑定层 | 配置传输、重试与 provider adapter       | `AiClient::builder()`                                                    |
+| 模型选择层      | 显式区分 provider/model                 | `openai(...)`、`anthropic(...)`、`google(...)`、`openai_compatible(...)` |
+| 生成层          | 一次性 + 流式文本生成                   | `generate_prompt`、`stream_prompt`、`generate_text`、`stream_text`       |
+| 工具运行时层    | 多步推理 + 工具执行循环                 | `run_tools`、`tool(...)`、`max_steps`、`stop_when`                       |
+| Agent 封装层    | 模型 + 指令 + 工具 + hooks 的复用工作流 | `Agent::builder(...).generate_prompt(...)`                               |
 
 <a id="cn-advanced-capabilities"></a>
+
 ## 3）再看高级能力
 
 ### Agent + 工具循环
@@ -180,6 +180,7 @@ cargo check --features axum
 ```
 
 <a id="cn-open-source"></a>
+
 ## 开源协作
 
 ### 如何贡献
