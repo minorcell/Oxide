@@ -73,7 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .api_key(api_key)
         .build()?;
 
-    let mut stream = client.stream_text("deepseek-chat", "Write a short release note.").await?;
+    let mut stream = client.stream("deepseek-chat", "Write a short release note.").await?;
 
     while let Some(chunk) = stream.next().await {
         print!("{}", chunk?);
@@ -82,7 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-For full events (`TextDelta / Usage / ToolCallReady / Done`), use `client.stream_prompt(...)`.
+For full events (`TextDelta / Usage / ToolCallReady / Done`), use `client.stream_events(...)`.
 
 ### Error Handling
 
@@ -163,40 +163,17 @@ let client = LlmClient::openai_compatible_with_settings(settings)
     .build()?;
 ```
 
-## Breaking Migration Notes
-
-- Model helpers are now infallible:
-  - `openai("gpt-4o-mini")` now returns `ModelRef<_>` directly (no `?`).
-- Prompt APIs now accept model strings directly:
-  - `client.generate("deepseek-chat", "...")`.
-- OpenAI-compatible quick constructor is now base-url-first:
-  - `LlmClient::openai_compatible(base_url).api_key(api_key)`.
-  - no-auth endpoints can use `LlmClient::openai_compatible_no_auth(base_url)`.
-- `AgentBuilder::build()` now returns `Result<Agent<_>, AiError>`:
-  - call `.build()?`.
-- Agent prompt execution API was renamed:
-  - `agent.run("...")` for prompt input.
-  - `agent.run_messages(messages)` for explicit message lists.
-- `MaxSteps` / `Temperature` / `TopP` newtypes were removed:
-  - use primitive types (`u8`, `f32`) and rely on validation in build/run paths.
-- Tool builder split into typed and raw modes:
-  - typed path: `.execute(|args: MyArgs| async move { ... })` with `Deserialize + JsonSchema`.
-  - raw escape hatch: `.raw_schema(json!(...)).execute_raw(|args| async move { ... })`.
-- `prepare_step` now has `event.to_prepared()` to clone the full default plan safely.
-- `OpenAiCompatibleAdapterSettings` fields are private:
-  - configure via chain methods (`api_key`, `header`, `query_param`, `chat_completions_path`).
-
 ## Examples
 
-| Example                             | Command                                        | Focus                               |
-| ----------------------------------- | ---------------------------------------------- | ----------------------------------- |
-| Basic generation                    | `cargo run --example basic_generate`           | one-shot `generate`                 |
-| Basic stream                        | `cargo run --example basic_stream`             | `StreamEvent` handling              |
-| Minimal agent                       | `cargo run --example agent_minimal`            | `Agent::builder` + one tool         |
-| Tool loop guardrails                | `cargo run --example tools_max_steps`          | multi-step tools + `max_steps`      |
-| Dynamic hooks                       | `cargo run --example prepare_hooks`            | `prepare_call` / `prepare_step`     |
-| Provider settings                   | `cargo run --example provider_selection_demo`  | quick vs. advanced compatible setup |
-| Compatible custom path/query/header | `cargo run --example openai_compatible_custom` | `OpenAiCompatibleAdapterSettings`   |
+| Example                             | Command                                        | Focus                                      |
+| ----------------------------------- | ---------------------------------------------- | ------------------------------------------ |
+| Basic generation                    | `cargo run --example basic_generate`           | one-shot `generate`                        |
+| Basic stream                        | `cargo run --example basic_stream`             | `StreamEvent` handling                     |
+| Minimal agent                       | `cargo run --example agent_minimal`            | `Agent::builder` + one tool                |
+| Tool loop guardrails                | `cargo run --example tools_max_steps`          | multi-step tools + `max_steps`             |
+| Dynamic hooks                       | `cargo run --example prepare_hooks`            | `prepare_call` / `prepare_step`            |
+| Provider settings                   | `cargo run --example provider_selection_demo`  | quick vs. advanced compatible setup        |
+| Compatible custom path/query/header | `cargo run --example openai_compatible_custom` | `OpenAiCompatibleAdapterSettings`          |
 | Mini terminal code agent            | `cargo run --example mini_claude_code`         | `Agent::builder` + `#[tool]` + local tools |
 
 ## Development

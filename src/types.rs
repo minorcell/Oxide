@@ -341,7 +341,7 @@ pub enum ToolErrorPolicy {
 }
 
 #[derive(Debug, Clone)]
-pub struct RunTools<P: ProviderMarker> {
+pub(crate) struct RunTools<P: ProviderMarker> {
     pub(crate) model: ModelRef<P>,
     pub(crate) messages: Vec<Message>,
     pub(crate) tools: Vec<Tool>,
@@ -361,7 +361,7 @@ pub struct RunTools<P: ProviderMarker> {
 }
 
 impl<P: ProviderMarker> RunTools<P> {
-    pub fn new(model: impl IntoModelRef<P>) -> Self {
+    pub(crate) fn new(model: impl IntoModelRef<P>) -> Self {
         Self {
             model: model.into_model_ref(),
             messages: Vec::new(),
@@ -382,27 +382,12 @@ impl<P: ProviderMarker> RunTools<P> {
         }
     }
 
-    pub fn message(mut self, message: Message) -> Self {
-        self.messages.push(message);
-        self
-    }
-
-    pub fn messages(mut self, messages: impl IntoIterator<Item = Message>) -> Self {
+    pub(crate) fn messages(mut self, messages: impl IntoIterator<Item = Message>) -> Self {
         self.messages = messages.into_iter().collect();
         self
     }
 
-    pub fn user_prompt(mut self, prompt: impl Into<String>) -> Self {
-        self.messages = vec![Message::user_text(prompt)];
-        self
-    }
-
-    pub fn tool(mut self, tool: impl IntoTool) -> Self {
-        self.tools.push(tool.into_tool());
-        self
-    }
-
-    pub fn tools<I, T>(mut self, tools: I) -> Self
+    pub(crate) fn tools<I, T>(mut self, tools: I) -> Self
     where
         I: IntoIterator<Item = T>,
         T: IntoTool,
@@ -412,101 +397,96 @@ impl<P: ProviderMarker> RunTools<P> {
         self
     }
 
-    pub fn max_steps(mut self, max_steps: u8) -> Self {
+    pub(crate) fn max_steps(mut self, max_steps: u8) -> Self {
         self.max_steps = Some(max_steps);
         self
     }
 
-    pub fn temperature(mut self, temperature: f32) -> Self {
+    pub(crate) fn temperature(mut self, temperature: f32) -> Self {
         self.temperature = Some(temperature);
         self
     }
 
-    pub fn max_output_tokens(mut self, max_output_tokens: u32) -> Self {
+    pub(crate) fn max_output_tokens(mut self, max_output_tokens: u32) -> Self {
         self.max_output_tokens = Some(max_output_tokens);
         self
     }
 
-    pub fn stop_sequence(mut self, stop_sequence: impl Into<String>) -> Self {
-        self.stop_sequences.push(stop_sequence.into());
-        self
-    }
-
-    pub fn stop_sequences(mut self, stop_sequences: impl IntoIterator<Item = String>) -> Self {
+    pub(crate) fn stop_sequences(mut self, stop_sequences: impl IntoIterator<Item = String>) -> Self {
         self.stop_sequences = stop_sequences.into_iter().collect();
         self
     }
 
-    pub fn prepare_step<F>(mut self, callback: F) -> Self
+    pub(crate) fn prepare_step<F>(mut self, callback: F) -> Self
     where
-        F: Fn(&RunToolsPrepareStep<P>) -> RunToolsPreparedStep<P> + Send + Sync + 'static,
+        F: Fn(&AgentPrepareStep<P>) -> AgentPreparedStep<P> + Send + Sync + 'static,
     {
         self.prepare_step = Some(PrepareStepCallback::new(callback));
         self
     }
 
-    pub fn on_start<F>(mut self, callback: F) -> Self
+    pub(crate) fn on_start<F>(mut self, callback: F) -> Self
     where
-        F: Fn(&RunToolsStart<P>) + Send + Sync + 'static,
+        F: Fn(&AgentStart<P>) + Send + Sync + 'static,
     {
         self.on_start = Some(StartCallback::new(callback));
         self
     }
 
-    pub fn on_step_start<F>(mut self, callback: F) -> Self
+    pub(crate) fn on_step_start<F>(mut self, callback: F) -> Self
     where
-        F: Fn(&RunToolsStepStart) + Send + Sync + 'static,
+        F: Fn(&AgentStepStart) + Send + Sync + 'static,
     {
         self.on_step_start = Some(StepStartCallback::new(callback));
         self
     }
 
-    pub fn on_tool_call_start<F>(mut self, callback: F) -> Self
+    pub(crate) fn on_tool_call_start<F>(mut self, callback: F) -> Self
     where
-        F: Fn(&RunToolsToolCallStart) + Send + Sync + 'static,
+        F: Fn(&AgentToolCallStart) + Send + Sync + 'static,
     {
         self.on_tool_call_start = Some(ToolCallStartCallback::new(callback));
         self
     }
 
-    pub fn on_tool_call_finish<F>(mut self, callback: F) -> Self
+    pub(crate) fn on_tool_call_finish<F>(mut self, callback: F) -> Self
     where
-        F: Fn(&RunToolsToolCallFinish) + Send + Sync + 'static,
+        F: Fn(&AgentToolCallFinish) + Send + Sync + 'static,
     {
         self.on_tool_call_finish = Some(ToolCallFinishCallback::new(callback));
         self
     }
 
-    pub fn on_step_finish<F>(mut self, callback: F) -> Self
+    pub(crate) fn on_step_finish<F>(mut self, callback: F) -> Self
     where
-        F: Fn(&RunToolsStep) + Send + Sync + 'static,
+        F: Fn(&AgentStep) + Send + Sync + 'static,
     {
         self.on_step_finish = Some(StepCallback::new(callback));
         self
     }
 
-    pub fn on_finish<F>(mut self, callback: F) -> Self
+    pub(crate) fn on_finish<F>(mut self, callback: F) -> Self
     where
-        F: Fn(&RunToolsFinish) + Send + Sync + 'static,
+        F: Fn(&AgentFinish) + Send + Sync + 'static,
     {
         self.on_finish = Some(FinishCallback::new(callback));
         self
     }
 
-    pub fn stop_when<F>(mut self, predicate: F) -> Self
+    pub(crate) fn stop_when<F>(mut self, predicate: F) -> Self
     where
-        F: Fn(&RunToolsStep) -> bool + Send + Sync + 'static,
+        F: Fn(&AgentStep) -> bool + Send + Sync + 'static,
     {
         self.stop_when = Some(StopWhen::new(predicate));
         self
     }
 
-    pub fn tool_error_policy(mut self, policy: ToolErrorPolicy) -> Self {
+    pub(crate) fn tool_error_policy(mut self, policy: ToolErrorPolicy) -> Self {
         self.tool_error_policy = policy;
         self
     }
 
-    pub fn build(self) -> Result<Self, AiError> {
+    pub(crate) fn build(self) -> Result<Self, AiError> {
         validate_model_ref(&self.model)?;
         validate_messages(&self.messages)?;
         validate_sampling(self.temperature, None)?;
@@ -518,7 +498,7 @@ impl<P: ProviderMarker> RunTools<P> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RunToolsStart<P: ProviderMarker> {
+pub struct AgentStart<P: ProviderMarker> {
     pub model: ModelRef<P>,
     pub messages: Vec<Message>,
     pub tool_count: usize,
@@ -526,19 +506,19 @@ pub struct RunToolsStart<P: ProviderMarker> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RunToolsStepStart {
+pub struct AgentStepStart {
     pub step: u8,
     pub messages: Vec<Message>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RunToolsToolCallStart {
+pub struct AgentToolCallStart {
     pub step: u8,
     pub tool_call: ToolCall,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RunToolsToolCallFinish {
+pub struct AgentToolCallFinish {
     pub step: u8,
     pub tool_call: ToolCall,
     pub tool_result: ToolResult,
@@ -546,7 +526,7 @@ pub struct RunToolsToolCallFinish {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RunToolsStep {
+pub struct AgentStep {
     pub step: u8,
     pub output_text: String,
     pub finish_reason: FinishReason,
@@ -556,17 +536,17 @@ pub struct RunToolsStep {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RunToolsFinish {
+pub struct AgentFinish {
     pub output_text: String,
     pub step_count: u8,
     pub finish_reason: FinishReason,
     pub usage_total: Usage,
     pub transcript: Vec<Message>,
-    pub step_results: Vec<RunToolsStep>,
+    pub step_results: Vec<AgentStep>,
 }
 
 #[derive(Debug, Clone)]
-pub struct RunToolsPrepareStep<P: ProviderMarker> {
+pub struct AgentPrepareStep<P: ProviderMarker> {
     pub step: u8,
     pub model: ModelRef<P>,
     pub messages: Vec<Message>,
@@ -574,11 +554,11 @@ pub struct RunToolsPrepareStep<P: ProviderMarker> {
     pub temperature: Option<f32>,
     pub max_output_tokens: Option<u32>,
     pub stop_sequences: Vec<String>,
-    pub previous_steps: Vec<RunToolsStep>,
+    pub previous_steps: Vec<AgentStep>,
 }
 
 #[derive(Debug, Clone)]
-pub struct RunToolsPreparedStep<P: ProviderMarker> {
+pub struct AgentPreparedStep<P: ProviderMarker> {
     pub model: ModelRef<P>,
     pub messages: Vec<Message>,
     pub tools: Vec<Tool>,
@@ -588,8 +568,8 @@ pub struct RunToolsPreparedStep<P: ProviderMarker> {
 }
 
 #[derive(Clone)]
-pub struct PrepareStepCallback<P: ProviderMarker> {
-    inner: Arc<dyn Fn(&RunToolsPrepareStep<P>) -> RunToolsPreparedStep<P> + Send + Sync>,
+pub(crate) struct PrepareStepCallback<P: ProviderMarker> {
+    inner: Arc<dyn Fn(&AgentPrepareStep<P>) -> AgentPreparedStep<P> + Send + Sync>,
 }
 
 impl<P: ProviderMarker> std::fmt::Debug for PrepareStepCallback<P> {
@@ -599,36 +579,23 @@ impl<P: ProviderMarker> std::fmt::Debug for PrepareStepCallback<P> {
 }
 
 impl<P: ProviderMarker> PrepareStepCallback<P> {
-    pub fn new<F>(callback: F) -> Self
+    pub(crate) fn new<F>(callback: F) -> Self
     where
-        F: Fn(&RunToolsPrepareStep<P>) -> RunToolsPreparedStep<P> + Send + Sync + 'static,
+        F: Fn(&AgentPrepareStep<P>) -> AgentPreparedStep<P> + Send + Sync + 'static,
     {
         Self {
             inner: Arc::new(callback),
         }
     }
 
-    pub fn call(&self, event: &RunToolsPrepareStep<P>) -> RunToolsPreparedStep<P> {
+    pub(crate) fn call(&self, event: &AgentPrepareStep<P>) -> AgentPreparedStep<P> {
         (self.inner)(event)
     }
 }
 
-impl<P: ProviderMarker> RunToolsPrepareStep<P> {
-    pub fn to_prepared(&self) -> RunToolsPreparedStep<P> {
-        RunToolsPreparedStep {
-            model: self.model.clone(),
-            messages: self.messages.clone(),
-            tools: self.tools.clone(),
-            temperature: self.temperature,
-            max_output_tokens: self.max_output_tokens,
-            stop_sequences: self.stop_sequences.clone(),
-        }
-    }
-}
-
 #[derive(Clone)]
-pub struct StartCallback<P: ProviderMarker> {
-    inner: Arc<dyn Fn(&RunToolsStart<P>) + Send + Sync>,
+pub(crate) struct StartCallback<P: ProviderMarker> {
+    inner: Arc<dyn Fn(&AgentStart<P>) + Send + Sync>,
 }
 
 impl<P: ProviderMarker> std::fmt::Debug for StartCallback<P> {
@@ -638,23 +605,23 @@ impl<P: ProviderMarker> std::fmt::Debug for StartCallback<P> {
 }
 
 impl<P: ProviderMarker> StartCallback<P> {
-    pub fn new<F>(callback: F) -> Self
+    pub(crate) fn new<F>(callback: F) -> Self
     where
-        F: Fn(&RunToolsStart<P>) + Send + Sync + 'static,
+        F: Fn(&AgentStart<P>) + Send + Sync + 'static,
     {
         Self {
             inner: Arc::new(callback),
         }
     }
 
-    pub fn call(&self, event: &RunToolsStart<P>) {
+    pub(crate) fn call(&self, event: &AgentStart<P>) {
         (self.inner)(event);
     }
 }
 
 #[derive(Clone)]
-pub struct StepStartCallback {
-    inner: Arc<dyn Fn(&RunToolsStepStart) + Send + Sync>,
+pub(crate) struct StepStartCallback {
+    inner: Arc<dyn Fn(&AgentStepStart) + Send + Sync>,
 }
 
 impl std::fmt::Debug for StepStartCallback {
@@ -664,23 +631,23 @@ impl std::fmt::Debug for StepStartCallback {
 }
 
 impl StepStartCallback {
-    pub fn new<F>(callback: F) -> Self
+    pub(crate) fn new<F>(callback: F) -> Self
     where
-        F: Fn(&RunToolsStepStart) + Send + Sync + 'static,
+        F: Fn(&AgentStepStart) + Send + Sync + 'static,
     {
         Self {
             inner: Arc::new(callback),
         }
     }
 
-    pub fn call(&self, event: &RunToolsStepStart) {
+    pub(crate) fn call(&self, event: &AgentStepStart) {
         (self.inner)(event);
     }
 }
 
 #[derive(Clone)]
-pub struct ToolCallStartCallback {
-    inner: Arc<dyn Fn(&RunToolsToolCallStart) + Send + Sync>,
+pub(crate) struct ToolCallStartCallback {
+    inner: Arc<dyn Fn(&AgentToolCallStart) + Send + Sync>,
 }
 
 impl std::fmt::Debug for ToolCallStartCallback {
@@ -690,23 +657,23 @@ impl std::fmt::Debug for ToolCallStartCallback {
 }
 
 impl ToolCallStartCallback {
-    pub fn new<F>(callback: F) -> Self
+    pub(crate) fn new<F>(callback: F) -> Self
     where
-        F: Fn(&RunToolsToolCallStart) + Send + Sync + 'static,
+        F: Fn(&AgentToolCallStart) + Send + Sync + 'static,
     {
         Self {
             inner: Arc::new(callback),
         }
     }
 
-    pub fn call(&self, event: &RunToolsToolCallStart) {
+    pub(crate) fn call(&self, event: &AgentToolCallStart) {
         (self.inner)(event);
     }
 }
 
 #[derive(Clone)]
-pub struct ToolCallFinishCallback {
-    inner: Arc<dyn Fn(&RunToolsToolCallFinish) + Send + Sync>,
+pub(crate) struct ToolCallFinishCallback {
+    inner: Arc<dyn Fn(&AgentToolCallFinish) + Send + Sync>,
 }
 
 impl std::fmt::Debug for ToolCallFinishCallback {
@@ -716,23 +683,23 @@ impl std::fmt::Debug for ToolCallFinishCallback {
 }
 
 impl ToolCallFinishCallback {
-    pub fn new<F>(callback: F) -> Self
+    pub(crate) fn new<F>(callback: F) -> Self
     where
-        F: Fn(&RunToolsToolCallFinish) + Send + Sync + 'static,
+        F: Fn(&AgentToolCallFinish) + Send + Sync + 'static,
     {
         Self {
             inner: Arc::new(callback),
         }
     }
 
-    pub fn call(&self, event: &RunToolsToolCallFinish) {
+    pub(crate) fn call(&self, event: &AgentToolCallFinish) {
         (self.inner)(event);
     }
 }
 
 #[derive(Clone)]
-pub struct StepCallback {
-    inner: Arc<dyn Fn(&RunToolsStep) + Send + Sync>,
+pub(crate) struct StepCallback {
+    inner: Arc<dyn Fn(&AgentStep) + Send + Sync>,
 }
 
 impl std::fmt::Debug for StepCallback {
@@ -742,23 +709,23 @@ impl std::fmt::Debug for StepCallback {
 }
 
 impl StepCallback {
-    pub fn new<F>(callback: F) -> Self
+    pub(crate) fn new<F>(callback: F) -> Self
     where
-        F: Fn(&RunToolsStep) + Send + Sync + 'static,
+        F: Fn(&AgentStep) + Send + Sync + 'static,
     {
         Self {
             inner: Arc::new(callback),
         }
     }
 
-    pub fn call(&self, step: &RunToolsStep) {
+    pub(crate) fn call(&self, step: &AgentStep) {
         (self.inner)(step);
     }
 }
 
 #[derive(Clone)]
-pub struct FinishCallback {
-    inner: Arc<dyn Fn(&RunToolsFinish) + Send + Sync>,
+pub(crate) struct FinishCallback {
+    inner: Arc<dyn Fn(&AgentFinish) + Send + Sync>,
 }
 
 impl std::fmt::Debug for FinishCallback {
@@ -768,23 +735,23 @@ impl std::fmt::Debug for FinishCallback {
 }
 
 impl FinishCallback {
-    pub fn new<F>(callback: F) -> Self
+    pub(crate) fn new<F>(callback: F) -> Self
     where
-        F: Fn(&RunToolsFinish) + Send + Sync + 'static,
+        F: Fn(&AgentFinish) + Send + Sync + 'static,
     {
         Self {
             inner: Arc::new(callback),
         }
     }
 
-    pub fn call(&self, event: &RunToolsFinish) {
+    pub(crate) fn call(&self, event: &AgentFinish) {
         (self.inner)(event);
     }
 }
 
 #[derive(Clone)]
-pub struct StopWhen {
-    inner: Arc<dyn Fn(&RunToolsStep) -> bool + Send + Sync>,
+pub(crate) struct StopWhen {
+    inner: Arc<dyn Fn(&AgentStep) -> bool + Send + Sync>,
 }
 
 impl std::fmt::Debug for StopWhen {
@@ -794,16 +761,16 @@ impl std::fmt::Debug for StopWhen {
 }
 
 impl StopWhen {
-    pub fn new<F>(predicate: F) -> Self
+    pub(crate) fn new<F>(predicate: F) -> Self
     where
-        F: Fn(&RunToolsStep) -> bool + Send + Sync + 'static,
+        F: Fn(&AgentStep) -> bool + Send + Sync + 'static,
     {
         Self {
             inner: Arc::new(predicate),
         }
     }
 
-    pub fn should_stop(&self, step: &RunToolsStep) -> bool {
+    pub(crate) fn should_stop(&self, step: &AgentStep) -> bool {
         (self.inner)(step)
     }
 }
@@ -818,7 +785,7 @@ pub struct GenerateTextResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RunToolsResponse {
+pub struct AgentResponse {
     pub output_text: String,
     pub steps: u8,
     pub transcript: Vec<Message>,
@@ -890,6 +857,19 @@ fn validate_message_parts(role: MessageRole, parts: &[ContentPart]) -> Result<()
         ));
     }
     Ok(())
+}
+
+impl<P: ProviderMarker> AgentPrepareStep<P> {
+    pub fn to_prepared(&self) -> AgentPreparedStep<P> {
+        AgentPreparedStep {
+            model: self.model.clone(),
+            messages: self.messages.clone(),
+            tools: self.tools.clone(),
+            temperature: self.temperature,
+            max_output_tokens: self.max_output_tokens,
+            stop_sequences: self.stop_sequences.clone(),
+        }
+    }
 }
 
 pub(crate) fn validate_messages(messages: &[Message]) -> Result<(), AiError> {

@@ -21,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let mut stream = client
-        .stream_text(
+        .stream(
             model,
             "Write a short release note for a Rust SDK refactor (Chinese).",
         )

@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use aquaregia::{
-    AiErrorCode, LlmClient, Message, OpenAi, RunTools, RunToolsPreparedStep, Tool, ToolDescriptor,
+    Agent, AgentPreparedStep, AiErrorCode, LlmClient, Message, Tool, ToolDescriptor,
     ToolExecError, ToolExecutor, openai,
 };
 use async_trait::async_trait;
@@ -37,15 +37,6 @@ fn make_weather_tool() -> Tool {
         },
         executor: Arc::new(DummyWeatherTool),
     }
-}
-
-fn tool_request(tools: Vec<Tool>) -> RunTools<OpenAi> {
-    RunTools::new(openai("gpt-4o-mini"))
-        .message(Message::user_text("What's the weather in Shanghai?"))
-        .tools(tools)
-        .max_steps(3)
-        .temperature(0.2)
-        .max_output_tokens(256)
 }
 
 #[tokio::test]
@@ -108,14 +99,18 @@ async fn run_tools_two_step_success() {
         .build()
         .expect("client should build");
 
-    let response = client
-        .run_tools(
-            tool_request(vec![make_weather_tool()])
-                .build()
-                .expect("request should build"),
-        )
+    let agent = Agent::builder(client, openai("gpt-4o-mini"))
+        .tool(make_weather_tool())
+        .max_steps(3)
+        .temperature(0.2)
+        .max_output_tokens(256)
+        .build()
+        .expect("agent should build");
+
+    let response = agent
+        .run("What's the weather in Shanghai?")
         .await
-        .expect("run_tools should succeed");
+        .expect("agent should succeed");
 
     assert_eq!(response.output_text, "Shanghai is about 22C.");
     assert_eq!(response.steps, 2);
@@ -160,14 +155,16 @@ async fn run_tools_unknown_tool_fails() {
         .build()
         .expect("client should build");
 
-    let err = client
-        .run_tools(
-            tool_request(vec![make_weather_tool()])
-                .build()
-                .expect("request should build"),
-        )
+    let agent = Agent::builder(client, openai("gpt-4o-mini"))
+        .tool(make_weather_tool())
+        .max_steps(3)
+        .build()
+        .expect("agent should build");
+
+    let err = agent
+        .run("What's the weather in Shanghai?")
         .await
-        .expect_err("run_tools should fail for unknown tool");
+        .expect_err("agent should fail for unknown tool");
 
     assert_eq!(err.code, AiErrorCode::UnknownTool);
 }
@@ -240,60 +237,50 @@ async fn run_tools_lifecycle_hooks_fire() {
             .push(label);
     }
 
-    let request = {
-        let mut request = tool_request(vec![make_weather_tool()]);
-
-        {
-            let events = Arc::clone(&events);
-            request = request.on_start(move |_| push_event(&events, "start".to_string()));
-        }
-        {
-            let events = Arc::clone(&events);
-            request = request.on_step_start(move |event| {
-                push_event(&events, format!("step_start:{}", event.step))
-            });
-        }
-        {
-            let events = Arc::clone(&events);
-            request = request.on_tool_call_start(move |event| {
-                push_event(
-                    &events,
-                    format!("tool_call_start:{}", event.tool_call.tool_name),
+    let agent = {
+        let e = Arc::clone(&events);
+        let agent = Agent::builder(client, openai("gpt-4o-mini"))
+            .tool(make_weather_tool())
+            .max_steps(3)
+            .temperature(0.2)
+            .max_output_tokens(256)
+            .on_start({
+                let e = Arc::clone(&e);
+                move |_| push_event(&e, "start".to_string())
+            })
+            .on_step_start({
+                let e = Arc::clone(&e);
+                move |event| push_event(&e, format!("step_start:{}", event.step))
+            })
+            .on_tool_call_start({
+                let e = Arc::clone(&e);
+                move |event| push_event(&e, format!("tool_call_start:{}", event.tool_call.tool_name))
+            })
+            .on_tool_call_finish({
+                let e = Arc::clone(&e);
+                move |event| push_event(
+                    &e,
+                    format!("tool_call_finish:{}:{}", event.tool_call.tool_name, event.tool_result.is_error),
                 )
-            });
-        }
-        {
-            let events = Arc::clone(&events);
-            request = request.on_tool_call_finish(move |event| {
-                push_event(
-                    &events,
-                    format!(
-                        "tool_call_finish:{}:{}",
-                        event.tool_call.tool_name, event.tool_result.is_error
-                    ),
-                )
-            });
-        }
-        {
-            let events = Arc::clone(&events);
-            request = request.on_step_finish(move |event| {
-                push_event(&events, format!("step_finish:{}", event.step))
-            });
-        }
-        {
-            let events = Arc::clone(&events);
-            request = request.on_finish(move |event| {
-                push_event(&events, format!("finish:{}", event.step_count))
-            });
-        }
-
-        request.build().expect("request should build")
+            })
+            .on_step_finish({
+                let e = Arc::clone(&e);
+                move |event| push_event(&e, format!("step_finish:{}", event.step))
+            })
+            .on_finish({
+                let e = Arc::clone(&e);
+                move |event| push_event(&e, format!("finish:{}", event.step_count))
+            })
+            .build()
+            .expect("agent should build");
+        drop(e);
+        agent
     };
 
-    let response = client
-        .run_tools(request)
+    let response = agent
+        .run("What's the weather in Shanghai?")
         .await
-        .expect("run_tools should succeed");
+        .expect("agent should succeed");
 
     assert_eq!(response.steps, 2);
     let observed = events
@@ -344,9 +331,9 @@ async fn run_tools_prepare_step_can_override_step_input() {
         .build()
         .expect("client should build");
 
-    let request = tool_request(vec![])
+    let agent = Agent::builder(client, openai("gpt-4o-mini"))
         .max_steps(1)
-        .prepare_step(|event| RunToolsPreparedStep {
+        .prepare_step(|event| AgentPreparedStep {
             model: event.model.clone(),
             messages: vec![
                 Message::system_text("from-prepare-step"),
@@ -358,12 +345,12 @@ async fn run_tools_prepare_step_can_override_step_input() {
             stop_sequences: event.stop_sequences.clone(),
         })
         .build()
-        .expect("request should build");
+        .expect("agent should build");
 
-    let response = client
-        .run_tools(request)
+    let response = agent
+        .run("Say hi")
         .await
-        .expect("run_tools should succeed");
+        .expect("agent should succeed");
 
     assert_eq!(response.output_text, "prepared-step-ok");
     assert_eq!(response.steps, 1);

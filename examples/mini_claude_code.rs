@@ -1,4 +1,4 @@
-use aquaregia::{Agent, LlmClient, Message, RunToolsStep, tool};
+use aquaregia::{Agent, AgentStep, LlmClient, Message, tool};
 use serde_json::{Value, json};
 use std::fs;
 use std::io::{self, Write};
@@ -269,7 +269,7 @@ fn truncate_text(text: &str, max_chars: usize) -> String {
     truncated
 }
 
-fn print_step_debug(step: &RunToolsStep) {
+fn print_step_debug(step: &AgentStep) {
     println!("\n--- step {} ---", step.step);
     println!(
         "finish_reason={:?} usage={}/{}/{}",
