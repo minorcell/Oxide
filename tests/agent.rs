@@ -1,4 +1,4 @@
-use aquaregia::{Agent, LlmClient, Message, RunToolsPreparedStep, openai, tool};
+use aquaregia::{Agent, AgentPreparedStep, LlmClient, Message, openai, tool};
 use serde_json::json;
 use wiremock::matchers::{body_string_contains, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -220,7 +220,7 @@ async fn agent_prepare_step_can_override_messages() {
 
     let agent = Agent::builder(client, openai("gpt-4o-mini"))
         .max_steps(1)
-        .prepare_step(|event| RunToolsPreparedStep {
+        .prepare_step(|event| AgentPreparedStep {
             model: event.model.clone(),
             messages: vec![
                 Message::system_text("from-agent-prepare-step"),

@@ -3,11 +3,11 @@ use std::sync::Arc;
 use crate::client::BoundClient;
 use crate::tool::{IntoTool, Tool};
 use crate::types::{
-    FinishCallback, IntoModelRef, Message, ModelRef, PrepareStepCallback, ProviderMarker, RunTools,
-    RunToolsFinish, RunToolsPrepareStep, RunToolsPreparedStep, RunToolsResponse, RunToolsStart,
-    RunToolsStep, RunToolsStepStart, RunToolsToolCallFinish, RunToolsToolCallStart, StartCallback,
-    StepCallback, StepStartCallback, StopWhen, ToolCallFinishCallback, ToolCallStartCallback,
-    ToolErrorPolicy, validate_max_steps, validate_model_ref, validate_sampling,
+    AgentFinish, AgentPrepareStep, AgentPreparedStep, AgentResponse, AgentStart, AgentStep,
+    AgentStepStart, AgentToolCallFinish, AgentToolCallStart, FinishCallback, IntoModelRef,
+    Message, ModelRef, PrepareStepCallback, ProviderMarker, RunTools, StartCallback, StepCallback,
+    StepStartCallback, StopWhen, ToolCallFinishCallback, ToolCallStartCallback, ToolErrorPolicy,
+    validate_max_steps, validate_model_ref, validate_sampling,
 };
 
 #[derive(Debug, Clone)]
@@ -22,7 +22,7 @@ pub struct AgentCallPlan<P: ProviderMarker> {
 }
 
 #[derive(Clone)]
-pub struct PrepareCallCallback<P: ProviderMarker> {
+pub(crate) struct PrepareCallCallback<P: ProviderMarker> {
     inner: Arc<dyn Fn(&mut AgentCallPlan<P>) + Send + Sync>,
 }
 
@@ -87,7 +87,7 @@ impl<P: ProviderMarker> Agent<P> {
     pub async fn run(
         &self,
         prompt: impl Into<String>,
-    ) -> Result<RunToolsResponse, crate::error::AiError> {
+    ) -> Result<AgentResponse, crate::error::AiError> {
         let mut messages = Vec::new();
         if let Some(instructions) = &self.instructions {
             messages.push(Message::system_text(instructions.clone()));
@@ -99,7 +99,7 @@ impl<P: ProviderMarker> Agent<P> {
     pub async fn run_messages(
         &self,
         messages: Vec<Message>,
-    ) -> Result<RunToolsResponse, crate::error::AiError> {
+    ) -> Result<AgentResponse, crate::error::AiError> {
         let mut call_plan = AgentCallPlan {
             model: self.model.clone(),
             messages,
@@ -135,31 +135,31 @@ impl<P: ProviderMarker> Agent<P> {
         }
         if let Some(on_start) = &self.on_start {
             let on_start = on_start.clone();
-            request = request.on_start(move |event| on_start.call(event));
+            request = request.on_start(move |event: &AgentStart<P>| on_start.call(event));
         }
         if let Some(on_step_start) = &self.on_step_start {
             let on_step_start = on_step_start.clone();
-            request = request.on_step_start(move |event| on_step_start.call(event));
+            request = request.on_step_start(move |event: &AgentStepStart| on_step_start.call(event));
         }
         if let Some(on_tool_call_start) = &self.on_tool_call_start {
             let on_tool_call_start = on_tool_call_start.clone();
-            request = request.on_tool_call_start(move |event| on_tool_call_start.call(event));
+            request = request.on_tool_call_start(move |event: &AgentToolCallStart| on_tool_call_start.call(event));
         }
         if let Some(on_tool_call_finish) = &self.on_tool_call_finish {
             let on_tool_call_finish = on_tool_call_finish.clone();
-            request = request.on_tool_call_finish(move |event| on_tool_call_finish.call(event));
+            request = request.on_tool_call_finish(move |event: &AgentToolCallFinish| on_tool_call_finish.call(event));
         }
         if let Some(on_step_finish) = &self.on_step_finish {
             let on_step_finish = on_step_finish.clone();
-            request = request.on_step_finish(move |event| on_step_finish.call(event));
+            request = request.on_step_finish(move |event: &AgentStep| on_step_finish.call(event));
         }
         if let Some(on_finish) = &self.on_finish {
             let on_finish = on_finish.clone();
-            request = request.on_finish(move |event| on_finish.call(event));
+            request = request.on_finish(move |event: &AgentFinish| on_finish.call(event));
         }
         if let Some(stop_when) = &self.stop_when {
             let stop_when = stop_when.clone();
-            request = request.stop_when(move |step| stop_when.should_stop(step));
+            request = request.stop_when(move |step: &AgentStep| stop_when.should_stop(step));
         }
 
         self.client.run_tools(request.build()?).await
@@ -266,7 +266,7 @@ impl<P: ProviderMarker> AgentBuilder<P> {
 
     pub fn prepare_step<F>(mut self, callback: F) -> Self
     where
-        F: Fn(&RunToolsPrepareStep<P>) -> RunToolsPreparedStep<P> + Send + Sync + 'static,
+        F: Fn(&AgentPrepareStep<P>) -> AgentPreparedStep<P> + Send + Sync + 'static,
     {
         self.prepare_step = Some(PrepareStepCallback::new(callback));
         self
@@ -274,7 +274,7 @@ impl<P: ProviderMarker> AgentBuilder<P> {
 
     pub fn on_step_finish<F>(mut self, callback: F) -> Self
     where
-        F: Fn(&RunToolsStep) + Send + Sync + 'static,
+        F: Fn(&AgentStep) + Send + Sync + 'static,
     {
         self.on_step_finish = Some(StepCallback::new(callback));
         self
@@ -282,7 +282,7 @@ impl<P: ProviderMarker> AgentBuilder<P> {
 
     pub fn on_start<F>(mut self, callback: F) -> Self
     where
-        F: Fn(&RunToolsStart<P>) + Send + Sync + 'static,
+        F: Fn(&AgentStart<P>) + Send + Sync + 'static,
     {
         self.on_start = Some(StartCallback::new(callback));
         self
@@ -290,7 +290,7 @@ impl<P: ProviderMarker> AgentBuilder<P> {
 
     pub fn on_step_start<F>(mut self, callback: F) -> Self
     where
-        F: Fn(&RunToolsStepStart) + Send + Sync + 'static,
+        F: Fn(&AgentStepStart) + Send + Sync + 'static,
     {
         self.on_step_start = Some(StepStartCallback::new(callback));
         self
@@ -298,7 +298,7 @@ impl<P: ProviderMarker> AgentBuilder<P> {
 
     pub fn on_tool_call_start<F>(mut self, callback: F) -> Self
     where
-        F: Fn(&RunToolsToolCallStart) + Send + Sync + 'static,
+        F: Fn(&AgentToolCallStart) + Send + Sync + 'static,
     {
         self.on_tool_call_start = Some(ToolCallStartCallback::new(callback));
         self
@@ -306,7 +306,7 @@ impl<P: ProviderMarker> AgentBuilder<P> {
 
     pub fn on_tool_call_finish<F>(mut self, callback: F) -> Self
     where
-        F: Fn(&RunToolsToolCallFinish) + Send + Sync + 'static,
+        F: Fn(&AgentToolCallFinish) + Send + Sync + 'static,
     {
         self.on_tool_call_finish = Some(ToolCallFinishCallback::new(callback));
         self
@@ -314,7 +314,7 @@ impl<P: ProviderMarker> AgentBuilder<P> {
 
     pub fn on_finish<F>(mut self, callback: F) -> Self
     where
-        F: Fn(&RunToolsFinish) + Send + Sync + 'static,
+        F: Fn(&AgentFinish) + Send + Sync + 'static,
     {
         self.on_finish = Some(FinishCallback::new(callback));
         self
@@ -322,7 +322,7 @@ impl<P: ProviderMarker> AgentBuilder<P> {
 
     pub fn stop_when<F>(mut self, predicate: F) -> Self
     where
-        F: Fn(&RunToolsStep) -> bool + Send + Sync + 'static,
+        F: Fn(&AgentStep) -> bool + Send + Sync + 'static,
     {
         self.stop_when = Some(StopWhen::new(predicate));
         self

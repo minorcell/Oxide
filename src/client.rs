@@ -17,9 +17,9 @@ use crate::model_adapters::openai_compatible::{
 use crate::tool::{ToolExecError, ToolRegistry};
 use crate::types::{
     Anthropic, ContentPart, FinishCallback, GenerateTextRequest, GenerateTextResponse, Google,
-    IntoModelRef, Message, OpenAi, OpenAiCompatible, ProviderMarker, RunTools, RunToolsFinish,
-    RunToolsPrepareStep, RunToolsPreparedStep, RunToolsResponse, RunToolsStart, RunToolsStep,
-    RunToolsStepStart, RunToolsToolCallFinish, RunToolsToolCallStart, TextDeltaStream, TextStream,
+    IntoModelRef, Message, OpenAi, OpenAiCompatible, ProviderMarker, RunTools, AgentFinish,
+    AgentPrepareStep, AgentPreparedStep, AgentResponse, AgentStart, AgentStep, AgentStepStart,
+    AgentToolCallFinish, AgentToolCallStart, TextDeltaStream, TextStream,
     ToolCall, ToolCallFinishCallback, ToolCallStartCallback, ToolErrorPolicy, ToolResult, Usage,
     validate_max_steps, validate_messages, validate_model_ref, validate_sampling,
 };
@@ -244,26 +244,7 @@ impl<P: ProviderMarker> BoundClient<P> {
         model: impl IntoModelRef<P>,
         prompt: impl Into<String>,
     ) -> Result<TextDeltaStream, AiError> {
-        self.stream_text(model, prompt).await
-    }
-
-    pub async fn stream_prompt(
-        &self,
-        model: impl IntoModelRef<P>,
-        prompt: impl Into<String>,
-    ) -> Result<TextStream, AiError> {
-        let model = model.into_model_ref();
-        validate_model_ref(&model)?;
-        let req = GenerateTextRequest::from_user_prompt(model, prompt);
-        self.stream_request(req).await
-    }
-
-    pub async fn stream_text(
-        &self,
-        model: impl IntoModelRef<P>,
-        prompt: impl Into<String>,
-    ) -> Result<TextDeltaStream, AiError> {
-        let mut events = self.stream_prompt(model, prompt).await?;
+        let mut events = self.stream_events(model, prompt).await?;
         let stream = try_stream! {
             while let Some(event) = events.next().await {
                 match event? {
@@ -274,6 +255,17 @@ impl<P: ProviderMarker> BoundClient<P> {
             }
         };
         Ok(Box::pin(stream))
+    }
+
+    pub async fn stream_events(
+        &self,
+        model: impl IntoModelRef<P>,
+        prompt: impl Into<String>,
+    ) -> Result<TextStream, AiError> {
+        let model = model.into_model_ref();
+        validate_model_ref(&model)?;
+        let req = GenerateTextRequest::from_user_prompt(model, prompt);
+        self.stream_request(req).await
     }
 
     pub async fn generate_request(
@@ -295,7 +287,7 @@ impl<P: ProviderMarker> BoundClient<P> {
             .await
     }
 
-    pub async fn run_tools(&self, req: RunTools<P>) -> Result<RunToolsResponse, AiError> {
+    pub(crate) async fn run_tools(&self, req: RunTools<P>) -> Result<AgentResponse, AiError> {
         let RunTools {
             model,
             messages,
@@ -326,7 +318,7 @@ impl<P: ProviderMarker> BoundClient<P> {
         let mut step_results = Vec::new();
 
         if let Some(callback) = &on_start {
-            callback.call(&RunToolsStart {
+            callback.call(&AgentStart {
                 model: model.clone(),
                 messages: messages.clone(),
                 tool_count: tools.len(),
@@ -335,7 +327,7 @@ impl<P: ProviderMarker> BoundClient<P> {
         }
 
         for step in 1..=resolved_max_steps {
-            let mut prepared_step = RunToolsPreparedStep {
+            let mut prepared_step = AgentPreparedStep {
                 model: model.clone(),
                 messages: messages.clone(),
                 tools: tools.clone(),
@@ -344,7 +336,7 @@ impl<P: ProviderMarker> BoundClient<P> {
                 stop_sequences: stop_sequences.clone(),
             };
             if let Some(callback) = &prepare_step {
-                prepared_step = callback.call(&RunToolsPrepareStep {
+                prepared_step = callback.call(&AgentPrepareStep {
                     step,
                     model: model.clone(),
                     messages: messages.clone(),
@@ -359,7 +351,7 @@ impl<P: ProviderMarker> BoundClient<P> {
             validate_messages(&prepared_step.messages)?;
 
             if let Some(callback) = &on_step_start {
-                callback.call(&RunToolsStepStart {
+                callback.call(&AgentStepStart {
                     step,
                     messages: prepared_step.messages.clone(),
                 });
@@ -391,7 +383,7 @@ impl<P: ProviderMarker> BoundClient<P> {
             next_messages.push(assistant_message_from_response(&response));
 
             if response.tool_calls.is_empty() {
-                let step_state = RunToolsStep {
+                let step_state = AgentStep {
                     step,
                     output_text: response.output_text.clone(),
                     finish_reason: response.finish_reason.clone(),
@@ -403,7 +395,7 @@ impl<P: ProviderMarker> BoundClient<P> {
                 if let Some(callback) = &on_step_finish {
                     callback.call(&step_state);
                 }
-                let final_response = RunToolsResponse {
+                let final_response = AgentResponse {
                     output_text: response.output_text,
                     steps: step,
                     transcript: next_messages,
@@ -432,7 +424,7 @@ impl<P: ProviderMarker> BoundClient<P> {
                 .iter()
                 .map(|entry| Message::tool_result(entry.result.clone()))
                 .collect::<Vec<_>>();
-            let step_state = RunToolsStep {
+            let step_state = AgentStep {
                 step,
                 output_text: response.output_text.clone(),
                 finish_reason: response.finish_reason.clone(),
@@ -452,7 +444,7 @@ impl<P: ProviderMarker> BoundClient<P> {
                 .as_ref()
                 .is_some_and(|predicate| predicate.should_stop(&step_state))
             {
-                let final_response = RunToolsResponse {
+                let final_response = AgentResponse {
                     output_text: response.output_text,
                     steps: step,
                     transcript: next_messages,
@@ -473,7 +465,7 @@ impl<P: ProviderMarker> BoundClient<P> {
         Err(AiError::new(
             AiErrorCode::MaxStepsExceeded,
             format!(
-                "run_tools reached max_steps ({}) without final answer",
+                "agent reached max_steps ({}) without final answer",
                 resolved_max_steps
             ),
         ))
@@ -524,15 +516,15 @@ fn assistant_message_from_response(response: &GenerateTextResponse) -> Message {
 
 fn emit_on_finish(
     callback: Option<&FinishCallback>,
-    response: &RunToolsResponse,
+    response: &AgentResponse,
     finish_reason: &crate::types::FinishReason,
-    step_results: &[RunToolsStep],
+    step_results: &[AgentStep],
 ) {
     let Some(callback) = callback else {
         return;
     };
 
-    callback.call(&RunToolsFinish {
+    callback.call(&AgentFinish {
         output_text: response.output_text.clone(),
         step_count: response.steps,
         finish_reason: finish_reason.clone(),
@@ -578,7 +570,7 @@ async fn execute_tool_calls(
             })?;
 
         if let Some(callback) = on_tool_call_start {
-            callback.call(&RunToolsToolCallStart {
+            callback.call(&AgentToolCallStart {
                 step,
                 tool_call: call.clone(),
             });
@@ -633,7 +625,7 @@ async fn execute_tool_calls(
         };
 
         if let Some(callback) = on_tool_call_finish {
-            callback.call(&RunToolsToolCallFinish {
+            callback.call(&AgentToolCallFinish {
                 step,
                 tool_call: call.clone(),
                 tool_result: tool_result.clone(),

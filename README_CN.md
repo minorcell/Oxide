@@ -74,7 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let mut stream = client
-        .stream_text("deepseek-chat", "写一段简短版本发布说明。")
+        .stream("deepseek-chat", "写一段简短版本发布说明。")
         .await?;
 
     while let Some(chunk) = stream.next().await {
@@ -84,7 +84,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-如果你需要完整事件（`TextDelta / Usage / ToolCallReady / Done`），请使用 `client.stream_prompt(...)`。
+如果你需要完整事件（`TextDelta / Usage / ToolCallReady / Done`），请使用 `client.stream_events(...)`。
 
 ### 错误处理
 
@@ -165,42 +165,18 @@ let client = LlmClient::openai_compatible_with_settings(settings)
     .build()?;
 ```
 
-## 破坏性变更迁移说明
-
-- 模型 helper 现在是无错误返回：
-  - `openai("gpt-4o-mini")` 直接返回 `ModelRef<_>`（不再需要 `?`）。
-- 文本调用 API 可直接传模型字符串：
-  - `client.generate("deepseek-chat", "...")`。
-- OpenAI-compatible 快捷构造器现在以 `base_url` 为主参数：
-  - `LlmClient::openai_compatible(base_url).api_key(api_key)`。
-  - 无鉴权端点可使用 `LlmClient::openai_compatible_no_auth(base_url)`。
-- `AgentBuilder::build()` 现在返回 `Result<Agent<_>, AiError>`：
-  - 需要使用 `.build()?`。
-- Agent 执行 API 重命名：
-  - `agent.run("...")` 用于 prompt 输入。
-  - `agent.run_messages(messages)` 用于显式消息列表。
-- `MaxSteps` / `Temperature` / `TopP` newtype 已移除：
-  - 直接使用基础类型（`u8`、`f32`），并在 build/run 阶段统一校验。
-- Tool builder 分为 typed 与 raw 两条路径：
-  - typed：`.execute(|args: MyArgs| async move { ... })`（`Deserialize + JsonSchema`）。
-  - raw：`.raw_schema(json!(...)).execute_raw(|args| async move { ... })`。
-- `prepare_step` 新增 `event.to_prepared()`：
-  - 可安全复制默认 step 配置后再做局部修改。
-- `OpenAiCompatibleAdapterSettings` 字段已私有化：
-  - 通过链式方法配置（`api_key`、`header`、`query_param`、`chat_completions_path`）。
-
 ## 示例
 
-| 示例             | 命令                                           | 重点                              |
-| ---------------- | ---------------------------------------------- | --------------------------------- |
-| 基础文本生成     | `cargo run --example basic_generate`           | 一次性 `generate`                 |
-| 基础流式输出     | `cargo run --example basic_stream`             | `StreamEvent` 处理                |
-| 最小 Agent       | `cargo run --example agent_minimal`            | `Agent::builder` + 单工具         |
-| 工具循环保护     | `cargo run --example tools_max_steps`          | 多步工具调用 + `max_steps`        |
-| 动态 hooks       | `cargo run --example prepare_hooks`            | `prepare_call` / `prepare_step`   |
-| Provider 选择    | `cargo run --example provider_selection_demo`  | 快速/高级兼容配置                 |
-| 兼容接口深度定制 | `cargo run --example openai_compatible_custom` | `OpenAiCompatibleAdapterSettings` |
-| 终端代码 Agent   | `cargo run --example mini_claude_code`         | 本地工具 + `run_tools`            |
+| 示例             | 命令                                           | 重点                                    |
+| ---------------- | ---------------------------------------------- | --------------------------------------- |
+| 基础文本生成     | `cargo run --example basic_generate`           | 一次性 `generate`                       |
+| 基础流式输出     | `cargo run --example basic_stream`             | `StreamEvent` 处理                      |
+| 最小 Agent       | `cargo run --example agent_minimal`            | `Agent::builder` + 单工具               |
+| 工具循环保护     | `cargo run --example tools_max_steps`          | 多步工具调用 + `max_steps`              |
+| 动态 hooks       | `cargo run --example prepare_hooks`            | `prepare_call` / `prepare_step`         |
+| Provider 选择    | `cargo run --example provider_selection_demo`  | 快速/高级兼容配置                       |
+| 兼容接口深度定制 | `cargo run --example openai_compatible_custom` | `OpenAiCompatibleAdapterSettings`       |
+| 终端代码 Agent   | `cargo run --example mini_claude_code`         | `Agent::builder` + `#[tool]` + 本地工具 |
 
 ## 本地开发检查
 
