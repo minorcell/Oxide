@@ -1,4 +1,4 @@
-use aquaregia::{LlmClient, OpenAiCompatibleAdapterSettings, google, openai_compatible};
+use aquaregia::{LlmClient, google, openai_compatible};
 use serde_json::json;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -71,10 +71,8 @@ async fn openai_compatible_generate_text_success() {
         .mount(&server)
         .await;
 
-    let settings =
-        OpenAiCompatibleAdapterSettings::new(server.uri()).api_key("test-compatible-key");
-
-    let client = LlmClient::openai_compatible_with_settings(settings)
+    let client = LlmClient::openai_compatible(server.uri())
+        .api_key("test-compatible-key")
         .build()
         .expect("client should build");
 

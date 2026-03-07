@@ -32,27 +32,22 @@
 - 场景：循环 + 多工具 + 步数保护。
 - 重点：多个 tool 定义、`max_steps`、多步推理收敛。
 
-5. `provider_selection_demo.rs`
-
-- 场景：DeepSeek 的两种接入方式（快捷配置 / settings 配置）。
-- 重点：`LlmClient::openai_compatible(base_url).api_key(...)` 与 `LlmClient::openai_compatible_with_settings(...)`。
-
-6. `google_generate.rs`
+5. `google_generate.rs`
 
 - 场景：一次性调用 DeepSeek（保留文件名用于兼容旧索引）。
 - 重点：`generate(model, ...)` 的最小调用路径。
 
-7. `openai_compatible_custom.rs`
+6. `openai_compatible_custom.rs`
 
 - 场景：接入 OpenAI-Compatible 服务。
 - 重点：自定义 `headers / query_params / chat_completions_path`。
 
-8. `mini_claude_code.rs`
+7. `mini_claude_code.rs`
 
 - 场景：最小终端 Code Agent（TUI + 系统提示词 + 工具循环）。
 - 重点：`Agent::builder`、`#[tool]`、`on_step_finish`、`bash/read/write/edit` 工具组合。
 
-9. `prepare_hooks.rs`
+8. `prepare_hooks.rs`
 
 - 场景：动态控制每次调用和每一步执行（对齐 AI SDK 的 `prepareCall/prepareStep`）。
 - 重点：`prepare_call`、`prepare_step`、在 step 前动态改消息/工具/采样参数。
@@ -63,8 +58,7 @@
 2. `basic_stream.rs`
 3. `agent_minimal.rs`
 4. `tools_max_steps.rs`
-5. `provider_selection_demo.rs`
-6. `google_generate.rs`
-7. `openai_compatible_custom.rs`
-8. `mini_claude_code.rs`
-9. `prepare_hooks.rs`
+5. `google_generate.rs`
+6. `openai_compatible_custom.rs`
+7. `mini_claude_code.rs`
+8. `prepare_hooks.rs`

@@ -23,7 +23,7 @@ pub use model_adapters::ModelAdapter;
 pub use model_adapters::anthropic::AnthropicAdapterSettings;
 pub use model_adapters::google::GoogleAdapterSettings;
 pub use model_adapters::openai::OpenAiAdapterSettings;
-pub use model_adapters::openai_compatible::OpenAiCompatibleAdapterSettings;
+
 pub use tool::{IntoTool, Tool, ToolBuilder, ToolDescriptor, ToolExecError, ToolExecutor, ToolRegistry, tool};
 pub use types::{
     // Provider markers

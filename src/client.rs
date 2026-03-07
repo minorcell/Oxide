@@ -96,17 +96,7 @@ impl LlmClient {
         ClientBuilder::new(OpenAiCompatibleAdapterSettings::new(base_url))
     }
 
-    pub fn openai_compatible_no_auth(
-        base_url: impl Into<String>,
-    ) -> ClientBuilder<OpenAiCompatible> {
-        Self::openai_compatible(base_url)
-    }
 
-    pub fn openai_compatible_with_settings(
-        settings: OpenAiCompatibleAdapterSettings,
-    ) -> ClientBuilder<OpenAiCompatible> {
-        ClientBuilder::new(settings)
-    }
 }
 
 pub struct ClientBuilder<P: ProviderBinding> {
@@ -121,7 +111,7 @@ impl<P: ProviderBinding> ClientBuilder<P> {
     fn new(settings: P::Settings) -> Self {
         Self {
             timeout: Duration::from_secs(30),
-            max_retries: 2,
+            max_retries: 3,
             default_max_steps: 8,
             user_agent: format!("aquaregia-ai-sdk/{}", env!("CARGO_PKG_VERSION")),
             settings,
