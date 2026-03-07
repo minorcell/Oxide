@@ -29,12 +29,12 @@ cargo check --no-default-features --features anthropic
 一个 `LlmClient` 绑定一个 provider 配置。  
 每次调用可以直接传模型字符串（例如 `"deepseek-chat"`）。
 
-| Provider          | 注册 API                                                                                                                                                     | 模型参数                    |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------- |
-| OpenAI            | `LlmClient::openai(api_key)`（可选 `.base_url(...)`）                                                                                                        | `"gpt-4o-mini"`             |
-| Anthropic         | `LlmClient::anthropic(api_key)`（可选 `.base_url(...)`、`.api_version(...)`）                                                                                | `"claude-3-5-haiku-latest"` |
-| Google            | `LlmClient::google(api_key)`（可选 `.base_url(...)`）                                                                                                        | `"gemini-2.0-flash"`        |
-| OpenAI-compatible | `LlmClient::openai_compatible(base_url).api_key(...)` / `LlmClient::openai_compatible_no_auth(base_url)` / `LlmClient::openai_compatible_with_settings(...)` | `"deepseek-chat"`           |
+| Provider          | 注册 API                                                                                                                                                     | 模型参数              |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------- |
+| OpenAI            | `LlmClient::openai(api_key)`（可选 `.base_url(...)`）                                                                                                        | `"gpt-5-3-codex"`     |
+| Anthropic         | `LlmClient::anthropic(api_key)`（可选 `.base_url(...)`、`.api_version(...)`）                                                                                | `"claude-4-6-sonnet"` |
+| Google            | `LlmClient::google(api_key)`（可选 `.base_url(...)`）                                                                                                        | `"gemini-3.0-pro"`    |
+| OpenAI-compatible | `LlmClient::openai_compatible(base_url).api_key(...)` / `LlmClient::openai_compatible_no_auth(base_url)` / `LlmClient::openai_compatible_with_settings(...)` | `"deepseek-chat"`     |
 
 ## Usage
 
