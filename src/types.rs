@@ -86,12 +86,6 @@ impl<P: ProviderMarker> ModelRef<P> {
         }
     }
 
-    pub fn try_new(model: impl Into<String>) -> Result<Self, AiError> {
-        let model_ref = Self::new(model);
-        validate_model_ref(&model_ref)?;
-        Ok(model_ref)
-    }
-
     pub fn id(&self) -> String {
         format!("{}/{}", P::KIND.as_slug(), self.model)
     }
