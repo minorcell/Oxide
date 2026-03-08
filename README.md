@@ -26,22 +26,22 @@ cargo check --no-default-features --features anthropic
 
 ## Unified Provider Architecture
 
-One `LlmClient` binds to one provider configuration.  
-Each call can pass a model id string directly (for example, `"deepseek-chat"`).
+One `LlmClient` binds to one provider configuration.
+Each call passes a `GenerateTextRequest` that carries both the model and the messages.
 
 | Provider          | Register API                                                                                                                                            | Model argument              |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
-| OpenAI            | `LlmClient::openai(api_key)` (+ optional `.base_url(...)`)                                                                                              | `"gpt-5.3-codex"`             |
-| Anthropic         | `LlmClient::anthropic(api_key)` (+ optional `.base_url(...)`, `.api_version(...)`)                                                                      | `"claude-4-6-sonnet"` |
-| Google            | `LlmClient::google(api_key)` (+ optional `.base_url(...)`)                                                                                              | `"gemini-3.0-pro"`        |
-| OpenAI-compatible | `LlmClient::openai_compatible(base_url).api_key(...)`                                                 | `"deepseek-chat"`           |
+| OpenAI            | `LlmClient::openai(api_key)` (+ optional `.base_url(...)`)                                                                                              | `"gpt-4o"`                  |
+| Anthropic         | `LlmClient::anthropic(api_key)` (+ optional `.base_url(...)`, `.api_version(...)`)                                                                      | `"claude-sonnet-4-5"`       |
+| Google            | `LlmClient::google(api_key)` (+ optional `.base_url(...)`)                                                                                              | `"gemini-2.0-flash"`        |
+| OpenAI-compatible | `LlmClient::openai_compatible(base_url).api_key(...)`                                                                                                   | `"deepseek-chat"`           |
 
 ## Usage
 
 ### Generating Text
 
 ```rust
-use aquaregia::LlmClient;
+use aquaregia::{GenerateTextRequest, LlmClient};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -52,7 +52,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let out = client
-        .generate("deepseek-chat", "Explain Rust ownership in 3 bullet points.")
+        .generate_request(GenerateTextRequest::from_user_prompt(
+            "deepseek-chat",
+            "Explain Rust ownership in 3 bullet points.",
+        ))
         .await?;
 
     println!("{}", out.output_text);
@@ -60,10 +63,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### Streaming Text (Simple)
+### Streaming Text
 
 ```rust
-use aquaregia::LlmClient;
+use aquaregia::{GenerateTextRequest, LlmClient, StreamEvent};
 use futures_util::StreamExt;
 
 #[tokio::main]
@@ -73,23 +76,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .api_key(api_key)
         .build()?;
 
-    let mut stream = client.stream("deepseek-chat", "Write a short release note.").await?;
+    let mut stream = client
+        .stream_request(GenerateTextRequest::from_user_prompt(
+            "deepseek-chat",
+            "Write a short release note.",
+        ))
+        .await?;
 
-    while let Some(chunk) = stream.next().await {
-        print!("{}", chunk?);
+    while let Some(event) = stream.next().await {
+        match event? {
+            StreamEvent::TextDelta { text } => print!("{text}"),
+            StreamEvent::Done => break,
+            _ => {}
+        }
     }
     Ok(())
 }
 ```
 
-For full events (`TextDelta / Usage / ToolCallReady / Done`), use `client.stream_events(...)`.
-
 ### Error Handling
 
 ```rust
-use aquaregia::{AiErrorCode, LlmClient};
+use aquaregia::{AiErrorCode, GenerateTextRequest, LlmClient};
 
-match client.generate("deepseek-chat", "hello").await {
+match client
+    .generate_request(GenerateTextRequest::from_user_prompt("deepseek-chat", "hello"))
+    .await
+{
     Ok(out) => println!("{}", out.output_text),
     Err(err) => match err.code {
         AiErrorCode::RateLimited => eprintln!("rate limited; retry later"),
@@ -119,7 +132,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let agent = Agent::builder(client, "deepseek-chat")
         .instructions("You can call tools before answering.")
-        .tool(get_weather)
+        .tools([get_weather])
         .max_steps(4)
         .build()?;
 
@@ -158,6 +171,7 @@ let client = LlmClient::openai_compatible("https://api.deepseek.com")
     .api_key(std::env::var("DEEPSEEK_API_KEY")?)
     .header("x-trace-source", "aquaregia")
     .query_param("source", "sdk")
+    .chat_completions_path("/v1/chat/completions")
     .build()?;
 ```
 
@@ -165,8 +179,8 @@ let client = LlmClient::openai_compatible("https://api.deepseek.com")
 
 | Example                             | Command                                        | Focus                                      |
 | ----------------------------------- | ---------------------------------------------- | ------------------------------------------ |
-| Basic generation                    | `cargo run --example basic_generate`           | one-shot `generate`                        |
-| Basic stream                        | `cargo run --example basic_stream`             | `StreamEvent` handling                     |
+| Basic generation                    | `cargo run --example basic_generate`           | one-shot `generate_request`                |
+| Basic stream                        | `cargo run --example basic_stream`             | `stream_request` + `StreamEvent` handling  |
 | Minimal agent                       | `cargo run --example agent_minimal`            | `Agent::builder` + one tool                |
 | Tool loop guardrails                | `cargo run --example tools_max_steps`          | multi-step tools + `max_steps`             |
 | Dynamic hooks                       | `cargo run --example prepare_hooks`            | `prepare_call` / `prepare_step`            |

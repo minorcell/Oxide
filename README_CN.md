@@ -26,22 +26,22 @@ cargo check --no-default-features --features anthropic
 
 ## 统一 Provider 架构
 
-一个 `LlmClient` 绑定一个 provider 配置。  
-每次调用可以直接传模型字符串（例如 `"deepseek-chat"`）。
+一个 `LlmClient` 绑定一个 provider 配置。
+每次调用传入一个 `GenerateTextRequest`，其中包含模型和消息。
 
 | Provider          | 注册 API                                                                                                                                                     | 模型参数              |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------- |
-| OpenAI            | `LlmClient::openai(api_key)`（可选 `.base_url(...)`）                                                                                                        | `"gpt-5-3-codex"`     |
-| Anthropic         | `LlmClient::anthropic(api_key)`（可选 `.base_url(...)`、`.api_version(...)`）                                                                                | `"claude-4-6-sonnet"` |
-| Google            | `LlmClient::google(api_key)`（可选 `.base_url(...)`）                                                                                                        | `"gemini-3.0-pro"`    |
-| OpenAI-compatible | `LlmClient::openai_compatible(base_url).api_key(...)`                                                      | `"deepseek-chat"`     |
+| OpenAI            | `LlmClient::openai(api_key)`（可选 `.base_url(...)`）                                                                                                        | `"gpt-4o"`            |
+| Anthropic         | `LlmClient::anthropic(api_key)`（可选 `.base_url(...)`、`.api_version(...)`）                                                                                | `"claude-sonnet-4-5"` |
+| Google            | `LlmClient::google(api_key)`（可选 `.base_url(...)`）                                                                                                        | `"gemini-2.0-flash"`  |
+| OpenAI-compatible | `LlmClient::openai_compatible(base_url).api_key(...)`                                                                                                        | `"deepseek-chat"`     |
 
 ## Usage
 
 ### 文本生成
 
 ```rust
-use aquaregia::LlmClient;
+use aquaregia::{GenerateTextRequest, LlmClient};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -52,7 +52,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let out = client
-        .generate("deepseek-chat", "用 3 个要点解释 Rust 所有权。")
+        .generate_request(GenerateTextRequest::from_user_prompt(
+            "deepseek-chat",
+            "用 3 个要点解释 Rust 所有权。",
+        ))
         .await?;
 
     println!("{}", out.output_text);
@@ -60,10 +63,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### 流式输出（简洁模式）
+### 流式输出
 
 ```rust
-use aquaregia::LlmClient;
+use aquaregia::{GenerateTextRequest, LlmClient, StreamEvent};
 use futures_util::StreamExt;
 
 #[tokio::main]
@@ -74,24 +77,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let mut stream = client
-        .stream("deepseek-chat", "写一段简短版本发布说明。")
+        .stream_request(GenerateTextRequest::from_user_prompt(
+            "deepseek-chat",
+            "写一段简短版本发布说明。",
+        ))
         .await?;
 
-    while let Some(chunk) = stream.next().await {
-        print!("{}", chunk?);
+    while let Some(event) = stream.next().await {
+        match event? {
+            StreamEvent::TextDelta { text } => print!("{text}"),
+            StreamEvent::Done => break,
+            _ => {}
+        }
     }
     Ok(())
 }
 ```
 
-如果你需要完整事件（`TextDelta / Usage / ToolCallReady / Done`），请使用 `client.stream_events(...)`。
+如果你需要完整事件（`TextDelta / Usage / ToolCallReady / Done`），`StreamEvent` 枚举已包含所有变体。
 
 ### 错误处理
 
 ```rust
-use aquaregia::{AiErrorCode, LlmClient};
+use aquaregia::{AiErrorCode, GenerateTextRequest, LlmClient};
 
-match client.generate("deepseek-chat", "hello").await {
+match client
+    .generate_request(GenerateTextRequest::from_user_prompt("deepseek-chat", "hello"))
+    .await
+{
     Ok(out) => println!("{}", out.output_text),
     Err(err) => match err.code {
         AiErrorCode::RateLimited => eprintln!("触发限流，请稍后重试"),
@@ -121,7 +134,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let agent = Agent::builder(client, "deepseek-chat")
         .instructions("回答前可以先调用工具。")
-        .tool(get_weather)
+        .tools([get_weather])
         .max_steps(4)
         .build()?;
 
@@ -160,6 +173,7 @@ let client = LlmClient::openai_compatible("https://api.deepseek.com")
     .api_key(std::env::var("DEEPSEEK_API_KEY")?)
     .header("x-trace-source", "aquaregia")
     .query_param("source", "sdk")
+    .chat_completions_path("/v1/chat/completions")
     .build()?;
 ```
 
@@ -167,8 +181,8 @@ let client = LlmClient::openai_compatible("https://api.deepseek.com")
 
 | 示例             | 命令                                           | 重点                                    |
 | ---------------- | ---------------------------------------------- | --------------------------------------- |
-| 基础文本生成     | `cargo run --example basic_generate`           | 一次性 `generate`                       |
-| 基础流式输出     | `cargo run --example basic_stream`             | `StreamEvent` 处理                      |
+| 基础文本生成     | `cargo run --example basic_generate`           | 一次性 `generate_request`               |
+| 基础流式输出     | `cargo run --example basic_stream`             | `stream_request` + `StreamEvent` 处理   |
 | 最小 Agent       | `cargo run --example agent_minimal`            | `Agent::builder` + 单工具               |
 | 工具循环保护     | `cargo run --example tools_max_steps`          | 多步工具调用 + `max_steps`              |
 | 动态 hooks       | `cargo run --example prepare_hooks`            | `prepare_call` / `prepare_step`         |
