@@ -2,7 +2,6 @@ pub mod agent;
 pub mod client;
 pub mod error;
 pub mod model_adapters;
-pub mod provider;
 pub mod stream;
 pub mod tool;
 pub mod types;
