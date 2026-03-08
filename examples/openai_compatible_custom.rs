@@ -1,4 +1,4 @@
-use aquaregia::LlmClient;
+use aquaregia::{GenerateTextRequest, LlmClient};
 
 const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
 const DEFAULT_DEEPSEEK_MODEL: &str = "deepseek-chat";
@@ -23,7 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .chat_completions_path("/v1/chat/completions")
         .build()?;
 
-    let response = client.generate(model, "Say hello in Chinese.").await?;
+    let response = client.generate_request(GenerateTextRequest::from_user_prompt(model, "Say hello in Chinese.")).await?;
 
     println!("{}", response.output_text);
     Ok(())

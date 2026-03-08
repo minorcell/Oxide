@@ -1,4 +1,4 @@
-use aquaregia::LlmClient;
+use aquaregia::{GenerateTextRequest, LlmClient, StreamEvent};
 use futures_util::StreamExt;
 
 const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
@@ -21,19 +21,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let mut stream = client
-        .stream(
+        .stream_request(GenerateTextRequest::from_user_prompt(
             model,
             "Write a short release note for a Rust SDK refactor (Chinese).",
-        )
+        ))
         .await?;
 
     let mut full_text = String::new();
 
     println!("=== streaming output ===");
     while let Some(chunk) = stream.next().await {
-        let text = chunk?;
-        full_text.push_str(&text);
-        print!("{text}");
+        match chunk? {
+            StreamEvent::TextDelta { text } => {
+                full_text.push_str(&text);
+                print!("{text}");
+            }
+            StreamEvent::Done => break,
+            _ => {}
+        }
     }
     println!("\n=== stream done ===");
 
