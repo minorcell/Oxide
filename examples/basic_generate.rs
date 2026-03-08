@@ -1,4 +1,4 @@
-use aquaregia::LlmClient;
+use aquaregia::{GenerateTextRequest, LlmClient};
 
 const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
 const DEFAULT_DEEPSEEK_MODEL: &str = "deepseek-chat";
@@ -26,7 +26,7 @@ Summarize the key ownership/lifetime pitfalls in 5 bullet points,
 and give one quick fix tip for each point.
 "#;
 
-    let response = client.generate(model, prompt).await?;
+    let response = client.generate_request(GenerateTextRequest::from_user_prompt(model, prompt)).await?;
 
     println!("=== one-shot result ===");
     println!("{}", response.output_text);

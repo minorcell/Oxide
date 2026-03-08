@@ -2,7 +2,6 @@ pub mod agent;
 pub mod client;
 pub mod error;
 pub mod model_adapters;
-pub mod provider;
 pub mod stream;
 pub mod tool;
 pub mod types;
@@ -23,7 +22,7 @@ pub use model_adapters::ModelAdapter;
 pub use model_adapters::anthropic::AnthropicAdapterSettings;
 pub use model_adapters::google::GoogleAdapterSettings;
 pub use model_adapters::openai::OpenAiAdapterSettings;
-pub use model_adapters::openai_compatible::OpenAiCompatibleAdapterSettings;
+
 pub use tool::{IntoTool, Tool, ToolBuilder, ToolDescriptor, ToolExecError, ToolExecutor, ToolRegistry, tool};
 pub use types::{
     // Provider markers
@@ -43,18 +42,18 @@ pub use types::{
     ToolCall, ToolErrorPolicy, ToolResult, Usage,
 };
 
-pub fn openai(model: impl Into<String>) -> ModelRef<OpenAi> {
+pub fn openai_model(model: impl Into<String>) -> ModelRef<OpenAi> {
     ModelRef::<OpenAi>::new(model)
 }
 
-pub fn anthropic(model: impl Into<String>) -> ModelRef<Anthropic> {
+pub fn anthropic_model(model: impl Into<String>) -> ModelRef<Anthropic> {
     ModelRef::<Anthropic>::new(model)
 }
 
-pub fn google(model: impl Into<String>) -> ModelRef<Google> {
+pub fn google_model(model: impl Into<String>) -> ModelRef<Google> {
     ModelRef::<Google>::new(model)
 }
 
-pub fn openai_compatible(model: impl Into<String>) -> ModelRef<OpenAiCompatible> {
+pub fn openai_compatible_model(model: impl Into<String>) -> ModelRef<OpenAiCompatible> {
     ModelRef::<OpenAiCompatible>::new(model)
 }

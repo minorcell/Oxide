@@ -1,4 +1,4 @@
-use aquaregia::LlmClient;
+use aquaregia::{GenerateTextRequest, LlmClient};
 
 const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
 const DEFAULT_DEEPSEEK_MODEL: &str = "deepseek-chat";
@@ -20,10 +20,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let response = client
-        .generate(
+        .generate_request(GenerateTextRequest::from_user_prompt(
             model,
             "Summarize what ownership and borrowing means in Rust in 3 bullet points.",
-        )
+        ))
         .await?;
 
     println!("{}", response.output_text);

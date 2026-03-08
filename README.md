@@ -34,7 +34,7 @@ Each call can pass a model id string directly (for example, `"deepseek-chat"`).
 | OpenAI            | `LlmClient::openai(api_key)` (+ optional `.base_url(...)`)                                                                                              | `"gpt-5.3-codex"`             |
 | Anthropic         | `LlmClient::anthropic(api_key)` (+ optional `.base_url(...)`, `.api_version(...)`)                                                                      | `"claude-4-6-sonnet"` |
 | Google            | `LlmClient::google(api_key)` (+ optional `.base_url(...)`)                                                                                              | `"gemini-3.0-pro"`        |
-| OpenAI-compatible | `LlmClient::openai_compatible(base_url).api_key(...)` / `LlmClient::openai_compatible_no_auth(base_url)` / `LlmClient::openai_compatible_with_settings` | `"deepseek-chat"`           |
+| OpenAI-compatible | `LlmClient::openai_compatible(base_url).api_key(...)`                                                 | `"deepseek-chat"`           |
 
 ## Usage
 
@@ -152,14 +152,12 @@ let agent = Agent::builder(client, "deepseek-chat")
 ### OpenAI-Compatible Advanced Settings
 
 ```rust
-use aquaregia::{LlmClient, OpenAiCompatibleAdapterSettings};
+use aquaregia::LlmClient;
 
-let settings = OpenAiCompatibleAdapterSettings::new("https://api.deepseek.com")
+let client = LlmClient::openai_compatible("https://api.deepseek.com")
     .api_key(std::env::var("DEEPSEEK_API_KEY")?)
     .header("x-trace-source", "aquaregia")
-    .query_param("source", "sdk");
-
-let client = LlmClient::openai_compatible_with_settings(settings)
+    .query_param("source", "sdk")
     .build()?;
 ```
 
@@ -172,8 +170,7 @@ let client = LlmClient::openai_compatible_with_settings(settings)
 | Minimal agent                       | `cargo run --example agent_minimal`            | `Agent::builder` + one tool                |
 | Tool loop guardrails                | `cargo run --example tools_max_steps`          | multi-step tools + `max_steps`             |
 | Dynamic hooks                       | `cargo run --example prepare_hooks`            | `prepare_call` / `prepare_step`            |
-| Provider settings                   | `cargo run --example provider_selection_demo`  | quick vs. advanced compatible setup        |
-| Compatible custom path/query/header | `cargo run --example openai_compatible_custom` | `OpenAiCompatibleAdapterSettings`          |
+| Compatible custom path/query/header | `cargo run --example openai_compatible_custom` | custom headers / query params / path       |
 | Mini terminal code agent            | `cargo run --example mini_claude_code`         | `Agent::builder` + `#[tool]` + local tools |
 
 ## Development

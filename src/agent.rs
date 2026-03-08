@@ -69,15 +69,8 @@ pub struct Agent<P: ProviderMarker> {
 }
 
 impl<P: ProviderMarker> Agent<P> {
-    pub fn builder(client: BoundClient<P>, model: impl IntoModelRef<P>) -> AgentBuilder<P> {
-        AgentBuilder::new(Arc::new(client), model.into_model_ref())
-    }
-
-    pub fn builder_with_client(
-        client: Arc<BoundClient<P>>,
-        model: impl IntoModelRef<P>,
-    ) -> AgentBuilder<P> {
-        AgentBuilder::new(client, model.into_model_ref())
+    pub fn builder(client: impl Into<Arc<BoundClient<P>>>, model: impl IntoModelRef<P>) -> AgentBuilder<P> {
+        AgentBuilder::new(client.into(), model.into_model_ref())
     }
 
     pub fn model_id(&self) -> String {
@@ -216,11 +209,6 @@ impl<P: ProviderMarker> AgentBuilder<P> {
         self
     }
 
-    pub fn tool(mut self, tool: impl IntoTool) -> Self {
-        self.tools.push(tool.into_tool());
-        self
-    }
-
     pub fn tools<I, T>(mut self, tools: I) -> Self
     where
         I: IntoIterator<Item = T>,
@@ -243,11 +231,6 @@ impl<P: ProviderMarker> AgentBuilder<P> {
 
     pub fn max_output_tokens(mut self, max_output_tokens: u32) -> Self {
         self.max_output_tokens = Some(max_output_tokens);
-        self
-    }
-
-    pub fn stop_sequence(mut self, stop_sequence: impl Into<String>) -> Self {
-        self.stop_sequences.push(stop_sequence.into());
         self
     }
 
@@ -366,7 +349,7 @@ impl<P: ProviderMarker> AgentBuilder<P> {
 #[cfg(test)]
 mod tests {
     use super::Agent;
-    use crate::{LlmClient, openai};
+    use crate::{LlmClient, openai_model};
 
     #[test]
     fn builder_accepts_typed_model() {
@@ -374,7 +357,7 @@ mod tests {
             .base_url("https://api.openai.com")
             .build()
             .expect("client should build");
-        let agent = Agent::builder(client, openai("gpt-4o-mini"))
+        let agent = Agent::builder(client, openai_model("gpt-4o-mini"))
             .max_steps(3)
             .build()
             .expect("agent should build");

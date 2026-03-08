@@ -86,12 +86,6 @@ impl<P: ProviderMarker> ModelRef<P> {
         }
     }
 
-    pub fn try_new(model: impl Into<String>) -> Result<Self, AiError> {
-        let model_ref = Self::new(model);
-        validate_model_ref(&model_ref)?;
-        Ok(model_ref)
-    }
-
     pub fn id(&self) -> String {
         format!("{}/{}", P::KIND.as_slug(), self.model)
     }
@@ -306,11 +300,6 @@ impl<P: ProviderMarker> GenerateTextRequestBuilder<P> {
 
     pub fn max_output_tokens(mut self, max_output_tokens: u32) -> Self {
         self.request.max_output_tokens = Some(max_output_tokens);
-        self
-    }
-
-    pub fn stop_sequence(mut self, stop_sequence: impl Into<String>) -> Self {
-        self.request.stop_sequences.push(stop_sequence.into());
         self
     }
 

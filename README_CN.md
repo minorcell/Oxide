@@ -34,7 +34,7 @@ cargo check --no-default-features --features anthropic
 | OpenAI            | `LlmClient::openai(api_key)`（可选 `.base_url(...)`）                                                                                                        | `"gpt-5-3-codex"`     |
 | Anthropic         | `LlmClient::anthropic(api_key)`（可选 `.base_url(...)`、`.api_version(...)`）                                                                                | `"claude-4-6-sonnet"` |
 | Google            | `LlmClient::google(api_key)`（可选 `.base_url(...)`）                                                                                                        | `"gemini-3.0-pro"`    |
-| OpenAI-compatible | `LlmClient::openai_compatible(base_url).api_key(...)` / `LlmClient::openai_compatible_no_auth(base_url)` / `LlmClient::openai_compatible_with_settings(...)` | `"deepseek-chat"`     |
+| OpenAI-compatible | `LlmClient::openai_compatible(base_url).api_key(...)`                                                      | `"deepseek-chat"`     |
 
 ## Usage
 
@@ -154,14 +154,12 @@ let agent = Agent::builder(client, "deepseek-chat")
 ### OpenAI-Compatible 高级配置
 
 ```rust
-use aquaregia::{LlmClient, OpenAiCompatibleAdapterSettings};
+use aquaregia::LlmClient;
 
-let settings = OpenAiCompatibleAdapterSettings::new("https://api.deepseek.com")
+let client = LlmClient::openai_compatible("https://api.deepseek.com")
     .api_key(std::env::var("DEEPSEEK_API_KEY")?)
     .header("x-trace-source", "aquaregia")
-    .query_param("source", "sdk");
-
-let client = LlmClient::openai_compatible_with_settings(settings)
+    .query_param("source", "sdk")
     .build()?;
 ```
 
@@ -174,8 +172,7 @@ let client = LlmClient::openai_compatible_with_settings(settings)
 | 最小 Agent       | `cargo run --example agent_minimal`            | `Agent::builder` + 单工具               |
 | 工具循环保护     | `cargo run --example tools_max_steps`          | 多步工具调用 + `max_steps`              |
 | 动态 hooks       | `cargo run --example prepare_hooks`            | `prepare_call` / `prepare_step`         |
-| Provider 选择    | `cargo run --example provider_selection_demo`  | 快速/高级兼容配置                       |
-| 兼容接口深度定制 | `cargo run --example openai_compatible_custom` | `OpenAiCompatibleAdapterSettings`       |
+| 兼容接口深度定制 | `cargo run --example openai_compatible_custom` | 自定义 headers / query params / path    |
 | 终端代码 Agent   | `cargo run --example mini_claude_code`         | `Agent::builder` + `#[tool]` + 本地工具 |
 
 ## 本地开发检查

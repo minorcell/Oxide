@@ -2,8 +2,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use async_stream::try_stream;
-use futures_util::{StreamExt, future::join_all};
+use futures_util::future::join_all;
 use tokio::time::sleep;
 
 use crate::error::{AiError, AiErrorCode};
@@ -17,9 +16,9 @@ use crate::model_adapters::openai_compatible::{
 use crate::tool::{ToolExecError, ToolRegistry};
 use crate::types::{
     Anthropic, ContentPart, FinishCallback, GenerateTextRequest, GenerateTextResponse, Google,
-    IntoModelRef, Message, OpenAi, OpenAiCompatible, ProviderMarker, RunTools, AgentFinish,
+    Message, OpenAi, OpenAiCompatible, ProviderMarker, RunTools, AgentFinish,
     AgentPrepareStep, AgentPreparedStep, AgentResponse, AgentStart, AgentStep, AgentStepStart,
-    AgentToolCallFinish, AgentToolCallStart, TextDeltaStream, TextStream,
+    AgentToolCallFinish, AgentToolCallStart, TextStream,
     ToolCall, ToolCallFinishCallback, ToolCallStartCallback, ToolErrorPolicy, ToolResult, Usage,
     validate_max_steps, validate_messages, validate_model_ref, validate_sampling,
 };
@@ -96,17 +95,7 @@ impl LlmClient {
         ClientBuilder::new(OpenAiCompatibleAdapterSettings::new(base_url))
     }
 
-    pub fn openai_compatible_no_auth(
-        base_url: impl Into<String>,
-    ) -> ClientBuilder<OpenAiCompatible> {
-        Self::openai_compatible(base_url)
-    }
 
-    pub fn openai_compatible_with_settings(
-        settings: OpenAiCompatibleAdapterSettings,
-    ) -> ClientBuilder<OpenAiCompatible> {
-        ClientBuilder::new(settings)
-    }
 }
 
 pub struct ClientBuilder<P: ProviderBinding> {
@@ -121,7 +110,7 @@ impl<P: ProviderBinding> ClientBuilder<P> {
     fn new(settings: P::Settings) -> Self {
         Self {
             timeout: Duration::from_secs(30),
-            max_retries: 2,
+            max_retries: 3,
             default_max_steps: 8,
             user_agent: format!("aquaregia-ai-sdk/{}", env!("CARGO_PKG_VERSION")),
             settings,
@@ -228,46 +217,6 @@ pub struct BoundClient<P: ProviderMarker> {
 }
 
 impl<P: ProviderMarker> BoundClient<P> {
-    pub async fn generate(
-        &self,
-        model: impl IntoModelRef<P>,
-        prompt: impl Into<String>,
-    ) -> Result<GenerateTextResponse, AiError> {
-        let model = model.into_model_ref();
-        validate_model_ref(&model)?;
-        let req = GenerateTextRequest::from_user_prompt(model, prompt);
-        self.generate_request(req).await
-    }
-
-    pub async fn stream(
-        &self,
-        model: impl IntoModelRef<P>,
-        prompt: impl Into<String>,
-    ) -> Result<TextDeltaStream, AiError> {
-        let mut events = self.stream_events(model, prompt).await?;
-        let stream = try_stream! {
-            while let Some(event) = events.next().await {
-                match event? {
-                    crate::types::StreamEvent::TextDelta { text } => yield text,
-                    crate::types::StreamEvent::Done => break,
-                    crate::types::StreamEvent::ToolCallReady { .. } | crate::types::StreamEvent::Usage { .. } => {}
-                }
-            }
-        };
-        Ok(Box::pin(stream))
-    }
-
-    pub async fn stream_events(
-        &self,
-        model: impl IntoModelRef<P>,
-        prompt: impl Into<String>,
-    ) -> Result<TextStream, AiError> {
-        let model = model.into_model_ref();
-        validate_model_ref(&model)?;
-        let req = GenerateTextRequest::from_user_prompt(model, prompt);
-        self.stream_request(req).await
-    }
-
     pub async fn generate_request(
         &self,
         req: GenerateTextRequest<P>,
