@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use futures_util::future::join_all;
 use tokio::time::sleep;
 
-use crate::error::{AiError, AiErrorCode};
+use crate::error::{Error, ErrorCode};
 use crate::model_adapters::ModelAdapter;
 use crate::model_adapters::anthropic::{AnthropicAdapter, AnthropicAdapterSettings};
 use crate::model_adapters::google::{GoogleAdapter, GoogleAdapterSettings};
@@ -15,12 +15,12 @@ use crate::model_adapters::openai_compatible::{
 };
 use crate::tool::{ToolExecError, ToolRegistry};
 use crate::types::{
-    Anthropic, ContentPart, FinishCallback, GenerateTextRequest, GenerateTextResponse, Google,
-    Message, OpenAi, OpenAiCompatible, ProviderMarker, RunTools, AgentFinish,
-    AgentPrepareStep, AgentPreparedStep, AgentResponse, AgentStart, AgentStep, AgentStepStart,
-    AgentToolCallFinish, AgentToolCallStart, TextStream,
-    ToolCall, ToolCallFinishCallback, ToolCallStartCallback, ToolErrorPolicy, ToolResult, Usage,
-    validate_max_steps, validate_messages, validate_model_ref, validate_sampling,
+    AgentFinish, AgentPrepareStep, AgentPreparedStep, AgentResponse, AgentStart, AgentStep,
+    AgentStepStart, AgentToolCallFinish, AgentToolCallStart, Anthropic, ContentPart,
+    FinishCallback, GenerateTextRequest, GenerateTextResponse, Google, Message, OpenAi,
+    OpenAiCompatible, ProviderMarker, RunTools, TextStream, ToolCall, ToolCallFinishCallback,
+    ToolCallStartCallback, ToolErrorPolicy, ToolResult, Usage, validate_max_steps,
+    validate_messages, validate_model_ref, validate_sampling,
 };
 
 pub trait ProviderBinding: ProviderMarker {
@@ -94,8 +94,6 @@ impl LlmClient {
     pub fn openai_compatible(base_url: impl Into<String>) -> ClientBuilder<OpenAiCompatible> {
         ClientBuilder::new(OpenAiCompatibleAdapterSettings::new(base_url))
     }
-
-
 }
 
 pub struct ClientBuilder<P: ProviderBinding> {
@@ -137,14 +135,14 @@ impl<P: ProviderBinding> ClientBuilder<P> {
         self
     }
 
-    pub fn build(self) -> Result<BoundClient<P>, AiError> {
+    pub fn build(self) -> Result<BoundClient<P>, Error> {
         validate_max_steps(self.default_max_steps)?;
         let http = Arc::new(
             reqwest::Client::builder()
                 .timeout(self.timeout)
                 .user_agent(self.user_agent)
                 .build()
-                .map_err(|e| AiError::new(AiErrorCode::Transport, e.to_string()))?,
+                .map_err(|e| Error::new(ErrorCode::Transport, e.to_string()))?,
         );
 
         Ok(BoundClient {
@@ -220,7 +218,7 @@ impl<P: ProviderMarker> BoundClient<P> {
     pub async fn generate_request(
         &self,
         req: GenerateTextRequest<P>,
-    ) -> Result<GenerateTextResponse, AiError> {
+    ) -> Result<GenerateTextResponse, Error> {
         validate_model_ref(&req.model)?;
         validate_messages(&req.messages)?;
         validate_sampling(req.temperature, req.top_p)?;
@@ -228,7 +226,7 @@ impl<P: ProviderMarker> BoundClient<P> {
             .await
     }
 
-    pub async fn stream_request(&self, req: GenerateTextRequest<P>) -> Result<TextStream, AiError> {
+    pub async fn stream_request(&self, req: GenerateTextRequest<P>) -> Result<TextStream, Error> {
         validate_model_ref(&req.model)?;
         validate_messages(&req.messages)?;
         validate_sampling(req.temperature, req.top_p)?;
@@ -236,7 +234,7 @@ impl<P: ProviderMarker> BoundClient<P> {
             .await
     }
 
-    pub(crate) async fn run_tools(&self, req: RunTools<P>) -> Result<AgentResponse, AiError> {
+    pub(crate) async fn run_tools(&self, req: RunTools<P>) -> Result<AgentResponse, Error> {
         let RunTools {
             model,
             messages,
@@ -411,8 +409,8 @@ impl<P: ProviderMarker> BoundClient<P> {
             messages = next_messages;
         }
 
-        Err(AiError::new(
-            AiErrorCode::MaxStepsExceeded,
+        Err(Error::new(
+            ErrorCode::MaxStepsExceeded,
             format!(
                 "agent reached max_steps ({}) without final answer",
                 resolved_max_steps
@@ -420,10 +418,10 @@ impl<P: ProviderMarker> BoundClient<P> {
         ))
     }
 
-    async fn call_with_retry<T, F, Fut>(&self, mut op: F) -> Result<T, AiError>
+    async fn call_with_retry<T, F, Fut>(&self, mut op: F) -> Result<T, Error>
     where
         F: FnMut() -> Fut,
-        Fut: std::future::Future<Output = Result<T, AiError>>,
+        Fut: std::future::Future<Output = Result<T, Error>>,
     {
         let mut attempt = 0u8;
         loop {
@@ -495,12 +493,12 @@ async fn execute_tool_calls(
     policy: ToolErrorPolicy,
     on_tool_call_start: Option<&ToolCallStartCallback>,
     on_tool_call_finish: Option<&ToolCallFinishCallback>,
-) -> Result<Vec<ExecutedToolCall>, AiError> {
+) -> Result<Vec<ExecutedToolCall>, Error> {
     let mut tasks = Vec::with_capacity(calls.len());
     for call in calls {
         let Some(registered) = registry.resolve(&call.tool_name) else {
-            return Err(AiError::new(
-                AiErrorCode::UnknownTool,
+            return Err(Error::new(
+                ErrorCode::UnknownTool,
                 format!("unknown tool `{}`", call.tool_name),
             ));
         };
@@ -509,8 +507,8 @@ async fn execute_tool_calls(
             .validator
             .validate(&call.args_json)
             .map_err(|e| {
-                AiError::new(
-                    AiErrorCode::InvalidToolArgs,
+                Error::new(
+                    ErrorCode::InvalidToolArgs,
                     format!(
                         "tool args for `{}` failed schema validation: {}",
                         call.tool_name, e
@@ -543,8 +541,8 @@ async fn execute_tool_calls(
             Ok(output_json) => (output_json, false),
             Err(ToolExecError::Execution(message)) => {
                 if policy == ToolErrorPolicy::FailFast {
-                    return Err(AiError::new(
-                        AiErrorCode::ToolExecutionFailed,
+                    return Err(Error::new(
+                        ErrorCode::ToolExecutionFailed,
                         format!(
                             "tool `{}` execution failed for call `{}`: {}",
                             call.tool_name, call.call_id, message
@@ -555,8 +553,8 @@ async fn execute_tool_calls(
             }
             Err(ToolExecError::Timeout) => {
                 if policy == ToolErrorPolicy::FailFast {
-                    return Err(AiError::new(
-                        AiErrorCode::ToolExecutionFailed,
+                    return Err(Error::new(
+                        ErrorCode::ToolExecutionFailed,
                         format!(
                             "tool `{}` timed out for call `{}`",
                             call.tool_name, call.call_id

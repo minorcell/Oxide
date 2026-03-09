@@ -97,7 +97,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Error Handling
 
 ```rust
-use aquaregia::{AiErrorCode, GenerateTextRequest, LlmClient};
+use aquaregia::{ErrorCode, GenerateTextRequest, LlmClient};
 
 match client
     .generate_request(GenerateTextRequest::from_user_prompt("deepseek-chat", "hello"))
@@ -105,8 +105,8 @@ match client
 {
     Ok(out) => println!("{}", out.output_text),
     Err(err) => match err.code {
-        AiErrorCode::RateLimited => eprintln!("rate limited; retry later"),
-        AiErrorCode::AuthFailed => eprintln!("check API key"),
+        ErrorCode::RateLimited => eprintln!("rate limited; retry later"),
+        ErrorCode::AuthFailed => eprintln!("check API key"),
         _ => eprintln!("request failed: {}", err),
     },
 }

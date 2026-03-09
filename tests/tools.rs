@@ -1,8 +1,8 @@
 use std::sync::{Arc, Mutex};
 
 use aquaregia::{
-    Agent, AgentPreparedStep, AiErrorCode, LlmClient, Message, Tool, ToolDescriptor,
-    ToolExecError, ToolExecutor, openai,
+    Agent, AgentPreparedStep, ErrorCode, LlmClient, Message, Tool, ToolDescriptor, ToolExecError,
+    ToolExecutor, openai,
 };
 use async_trait::async_trait;
 use serde_json::{Value, json};
@@ -166,7 +166,7 @@ async fn run_tools_unknown_tool_fails() {
         .await
         .expect_err("agent should fail for unknown tool");
 
-    assert_eq!(err.code, AiErrorCode::UnknownTool);
+    assert_eq!(err.code, ErrorCode::UnknownTool);
 }
 
 #[tokio::test]
@@ -254,14 +254,21 @@ async fn run_tools_lifecycle_hooks_fire() {
             })
             .on_tool_call_start({
                 let e = Arc::clone(&e);
-                move |event| push_event(&e, format!("tool_call_start:{}", event.tool_call.tool_name))
+                move |event| {
+                    push_event(&e, format!("tool_call_start:{}", event.tool_call.tool_name))
+                }
             })
             .on_tool_call_finish({
                 let e = Arc::clone(&e);
-                move |event| push_event(
-                    &e,
-                    format!("tool_call_finish:{}:{}", event.tool_call.tool_name, event.tool_result.is_error),
-                )
+                move |event| {
+                    push_event(
+                        &e,
+                        format!(
+                            "tool_call_finish:{}:{}",
+                            event.tool_call.tool_name, event.tool_result.is_error
+                        ),
+                    )
+                }
             })
             .on_step_finish({
                 let e = Arc::clone(&e);
@@ -347,10 +354,7 @@ async fn run_tools_prepare_step_can_override_step_input() {
         .build()
         .expect("agent should build");
 
-    let response = agent
-        .run("Say hi")
-        .await
-        .expect("agent should succeed");
+    let response = agent.run("Say hi").await.expect("agent should succeed");
 
     assert_eq!(response.output_text, "prepared-step-ok");
     assert_eq!(response.steps, 1);

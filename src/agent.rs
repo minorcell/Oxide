@@ -4,8 +4,8 @@ use crate::client::BoundClient;
 use crate::tool::{IntoTool, Tool};
 use crate::types::{
     AgentFinish, AgentPrepareStep, AgentPreparedStep, AgentResponse, AgentStart, AgentStep,
-    AgentStepStart, AgentToolCallFinish, AgentToolCallStart, FinishCallback, IntoModelRef,
-    Message, ModelRef, PrepareStepCallback, ProviderMarker, RunTools, StartCallback, StepCallback,
+    AgentStepStart, AgentToolCallFinish, AgentToolCallStart, FinishCallback, IntoModelRef, Message,
+    ModelRef, PrepareStepCallback, ProviderMarker, RunTools, StartCallback, StepCallback,
     StepStartCallback, StopWhen, ToolCallFinishCallback, ToolCallStartCallback, ToolErrorPolicy,
     validate_max_steps, validate_model_ref, validate_sampling,
 };
@@ -69,7 +69,10 @@ pub struct Agent<P: ProviderMarker> {
 }
 
 impl<P: ProviderMarker> Agent<P> {
-    pub fn builder(client: impl Into<Arc<BoundClient<P>>>, model: impl IntoModelRef<P>) -> AgentBuilder<P> {
+    pub fn builder(
+        client: impl Into<Arc<BoundClient<P>>>,
+        model: impl IntoModelRef<P>,
+    ) -> AgentBuilder<P> {
         AgentBuilder::new(client.into(), model.into_model_ref())
     }
 
@@ -80,7 +83,7 @@ impl<P: ProviderMarker> Agent<P> {
     pub async fn run(
         &self,
         prompt: impl Into<String>,
-    ) -> Result<AgentResponse, crate::error::AiError> {
+    ) -> Result<AgentResponse, crate::error::Error> {
         let mut messages = Vec::new();
         if let Some(instructions) = &self.instructions {
             messages.push(Message::system_text(instructions.clone()));
@@ -92,7 +95,7 @@ impl<P: ProviderMarker> Agent<P> {
     pub async fn run_messages(
         &self,
         messages: Vec<Message>,
-    ) -> Result<AgentResponse, crate::error::AiError> {
+    ) -> Result<AgentResponse, crate::error::Error> {
         let mut call_plan = AgentCallPlan {
             model: self.model.clone(),
             messages,
@@ -132,15 +135,20 @@ impl<P: ProviderMarker> Agent<P> {
         }
         if let Some(on_step_start) = &self.on_step_start {
             let on_step_start = on_step_start.clone();
-            request = request.on_step_start(move |event: &AgentStepStart| on_step_start.call(event));
+            request =
+                request.on_step_start(move |event: &AgentStepStart| on_step_start.call(event));
         }
         if let Some(on_tool_call_start) = &self.on_tool_call_start {
             let on_tool_call_start = on_tool_call_start.clone();
-            request = request.on_tool_call_start(move |event: &AgentToolCallStart| on_tool_call_start.call(event));
+            request = request.on_tool_call_start(move |event: &AgentToolCallStart| {
+                on_tool_call_start.call(event)
+            });
         }
         if let Some(on_tool_call_finish) = &self.on_tool_call_finish {
             let on_tool_call_finish = on_tool_call_finish.clone();
-            request = request.on_tool_call_finish(move |event: &AgentToolCallFinish| on_tool_call_finish.call(event));
+            request = request.on_tool_call_finish(move |event: &AgentToolCallFinish| {
+                on_tool_call_finish.call(event)
+            });
         }
         if let Some(on_step_finish) = &self.on_step_finish {
             let on_step_finish = on_step_finish.clone();
@@ -316,7 +324,7 @@ impl<P: ProviderMarker> AgentBuilder<P> {
         self
     }
 
-    pub fn build(self) -> Result<Agent<P>, crate::error::AiError> {
+    pub fn build(self) -> Result<Agent<P>, crate::error::Error> {
         validate_model_ref(&self.model)?;
         if let Some(max_steps) = self.max_steps {
             validate_max_steps(max_steps)?;

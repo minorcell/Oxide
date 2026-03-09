@@ -1,4 +1,4 @@
-use aquaregia::{AiErrorCode, GenerateTextRequest, LlmClient, Message, anthropic};
+use aquaregia::{ErrorCode, GenerateTextRequest, LlmClient, Message, anthropic};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -33,7 +33,7 @@ async fn anthropic_429_maps_to_rate_limited() {
         .await
         .expect_err("request should fail");
 
-    assert_eq!(err.code, AiErrorCode::RateLimited);
+    assert_eq!(err.code, ErrorCode::RateLimited);
     assert_eq!(err.status, Some(429));
     assert!(err.retryable);
 }

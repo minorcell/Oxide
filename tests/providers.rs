@@ -37,7 +37,10 @@ async fn google_generate_text_success() {
         .expect("client should build");
 
     let response = client
-        .generate_request(GenerateTextRequest::from_user_prompt(google("gemini-2.0-flash"), "hello"))
+        .generate_request(GenerateTextRequest::from_user_prompt(
+            google("gemini-2.0-flash"),
+            "hello",
+        ))
         .await
         .expect("request should succeed");
 
@@ -77,7 +80,10 @@ async fn openai_compatible_generate_text_success() {
         .expect("client should build");
 
     let response = client
-        .generate_request(GenerateTextRequest::from_user_prompt(openai_compatible("deepseek-chat"), "hello"))
+        .generate_request(GenerateTextRequest::from_user_prompt(
+            openai_compatible("deepseek-chat"),
+            "hello",
+        ))
         .await
         .expect("request should succeed");
 

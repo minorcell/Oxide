@@ -6,7 +6,7 @@ use futures_core::Stream;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::error::{AiError, AiErrorCode};
+use crate::error::{Error, ErrorCode};
 use crate::tool::{IntoTool, Tool, ToolDescriptor};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -141,7 +141,7 @@ pub struct Message {
 }
 
 impl Message {
-    pub fn new(role: MessageRole, parts: Vec<ContentPart>) -> Result<Self, AiError> {
+    pub fn new(role: MessageRole, parts: Vec<ContentPart>) -> Result<Self, Error> {
         validate_message_parts(role.clone(), &parts)?;
         Ok(Self {
             role,
@@ -314,7 +314,7 @@ impl<P: ProviderMarker> GenerateTextRequestBuilder<P> {
         self
     }
 
-    pub fn build(self) -> Result<GenerateTextRequest<P>, AiError> {
+    pub fn build(self) -> Result<GenerateTextRequest<P>, Error> {
         validate_model_ref(&self.request.model)?;
         validate_messages(&self.request.messages)?;
         validate_sampling(self.request.temperature, self.request.top_p)?;
@@ -401,7 +401,10 @@ impl<P: ProviderMarker> RunTools<P> {
         self
     }
 
-    pub(crate) fn stop_sequences(mut self, stop_sequences: impl IntoIterator<Item = String>) -> Self {
+    pub(crate) fn stop_sequences(
+        mut self,
+        stop_sequences: impl IntoIterator<Item = String>,
+    ) -> Self {
         self.stop_sequences = stop_sequences.into_iter().collect();
         self
     }
@@ -475,7 +478,7 @@ impl<P: ProviderMarker> RunTools<P> {
         self
     }
 
-    pub(crate) fn build(self) -> Result<Self, AiError> {
+    pub(crate) fn build(self) -> Result<Self, Error> {
         validate_model_ref(&self.model)?;
         validate_messages(&self.messages)?;
         validate_sampling(self.temperature, None)?;
@@ -825,13 +828,13 @@ pub enum StreamEvent {
     Done,
 }
 
-pub type TextStream = Pin<Box<dyn Stream<Item = Result<StreamEvent, AiError>> + Send>>;
-pub type TextDeltaStream = Pin<Box<dyn Stream<Item = Result<String, AiError>> + Send>>;
+pub type TextStream = Pin<Box<dyn Stream<Item = Result<StreamEvent, Error>> + Send>>;
+pub type TextDeltaStream = Pin<Box<dyn Stream<Item = Result<String, Error>> + Send>>;
 
-fn validate_message_parts(role: MessageRole, parts: &[ContentPart]) -> Result<(), AiError> {
+fn validate_message_parts(role: MessageRole, parts: &[ContentPart]) -> Result<(), Error> {
     if parts.is_empty() {
-        return Err(AiError::new(
-            AiErrorCode::InvalidRequest,
+        return Err(Error::new(
+            ErrorCode::InvalidRequest,
             "message parts cannot be empty",
         ));
     }
@@ -840,8 +843,8 @@ fn validate_message_parts(role: MessageRole, parts: &[ContentPart]) -> Result<()
             .iter()
             .any(|part| matches!(part, ContentPart::ToolResult(_)))
     {
-        return Err(AiError::new(
-            AiErrorCode::InvalidRequest,
+        return Err(Error::new(
+            ErrorCode::InvalidRequest,
             "tool role message must include a ToolResult part",
         ));
     }
@@ -861,10 +864,10 @@ impl<P: ProviderMarker> AgentPrepareStep<P> {
     }
 }
 
-pub(crate) fn validate_messages(messages: &[Message]) -> Result<(), AiError> {
+pub(crate) fn validate_messages(messages: &[Message]) -> Result<(), Error> {
     if messages.is_empty() {
-        return Err(AiError::new(
-            AiErrorCode::InvalidRequest,
+        return Err(Error::new(
+            ErrorCode::InvalidRequest,
             "messages cannot be empty",
         ));
     }
@@ -876,32 +879,29 @@ pub(crate) fn validate_messages(messages: &[Message]) -> Result<(), AiError> {
     Ok(())
 }
 
-pub(crate) fn validate_model_ref<P: ProviderMarker>(model: &ModelRef<P>) -> Result<(), AiError> {
+pub(crate) fn validate_model_ref<P: ProviderMarker>(model: &ModelRef<P>) -> Result<(), Error> {
     if model.model().trim().is_empty() {
-        return Err(AiError::new(
-            AiErrorCode::InvalidRequest,
+        return Err(Error::new(
+            ErrorCode::InvalidRequest,
             "model name cannot be empty",
         ));
     }
     Ok(())
 }
 
-pub(crate) fn validate_sampling(
-    temperature: Option<f32>,
-    top_p: Option<f32>,
-) -> Result<(), AiError> {
+pub(crate) fn validate_sampling(temperature: Option<f32>, top_p: Option<f32>) -> Result<(), Error> {
     if let Some(temp) = temperature {
         if !(0.0..=2.0).contains(&temp) {
-            return Err(AiError::new(
-                AiErrorCode::InvalidRequest,
+            return Err(Error::new(
+                ErrorCode::InvalidRequest,
                 "temperature must be within 0.0..=2.0",
             ));
         }
     }
     if let Some(p) = top_p {
         if !(0.0..=1.0).contains(&p) {
-            return Err(AiError::new(
-                AiErrorCode::InvalidRequest,
+            return Err(Error::new(
+                ErrorCode::InvalidRequest,
                 "top_p must be within 0.0..=1.0",
             ));
         }
@@ -909,10 +909,10 @@ pub(crate) fn validate_sampling(
     Ok(())
 }
 
-pub(crate) fn validate_max_steps(max_steps: u8) -> Result<(), AiError> {
+pub(crate) fn validate_max_steps(max_steps: u8) -> Result<(), Error> {
     if !(1..=32).contains(&max_steps) {
-        return Err(AiError::new(
-            AiErrorCode::InvalidRequest,
+        return Err(Error::new(
+            ErrorCode::InvalidRequest,
             "max_steps must be in 1..=32",
         ));
     }

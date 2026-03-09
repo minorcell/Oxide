@@ -7,7 +7,7 @@ use futures_util::StreamExt;
 use reqwest::header::CONTENT_TYPE;
 use serde_json::{Map, Value, json};
 
-use crate::error::{AiError, AiErrorCode};
+use crate::error::{Error, ErrorCode};
 use crate::model_adapters::{ModelAdapter, check_response_status, map_send_error};
 use crate::stream::drain_sse_frames;
 use crate::types::{
@@ -69,7 +69,7 @@ impl ModelAdapter<Google> for GoogleAdapter {
     async fn generate_text(
         &self,
         req: &GenerateTextRequest<Google>,
-    ) -> Result<GenerateTextResponse, AiError> {
+    ) -> Result<GenerateTextResponse, Error> {
         let payload = build_google_payload(req);
         let response = self
             .http
@@ -84,11 +84,11 @@ impl ModelAdapter<Google> for GoogleAdapter {
         let body: Value = response
             .json()
             .await
-            .map_err(|e| AiError::new(AiErrorCode::InvalidResponse, e.to_string()))?;
+            .map_err(|e| Error::new(ErrorCode::InvalidResponse, e.to_string()))?;
         normalize_google_response(body)
     }
 
-    async fn stream_text(&self, req: &GenerateTextRequest<Google>) -> Result<TextStream, AiError> {
+    async fn stream_text(&self, req: &GenerateTextRequest<Google>) -> Result<TextStream, Error> {
         let payload = build_google_payload(req);
         let response = self
             .http
@@ -108,9 +108,9 @@ impl ModelAdapter<Google> for GoogleAdapter {
             let mut tool_counter = 0u32;
 
             while let Some(chunk) = byte_stream.next().await {
-                let chunk = chunk.map_err(|e| AiError::new(AiErrorCode::Transport, e.to_string()))?;
+                let chunk = chunk.map_err(|e| Error::new(ErrorCode::Transport, e.to_string()))?;
                 let text = std::str::from_utf8(&chunk)
-                    .map_err(|e| AiError::new(AiErrorCode::StreamProtocol, e.to_string()))?;
+                    .map_err(|e| Error::new(ErrorCode::StreamProtocol, e.to_string()))?;
                 buffer.push_str(text);
 
                 let frames = drain_sse_frames(&mut buffer);
@@ -121,7 +121,7 @@ impl ModelAdapter<Google> for GoogleAdapter {
                     }
 
                     let value: Value = serde_json::from_str(data)
-                        .map_err(|e| AiError::new(AiErrorCode::StreamProtocol, e.to_string()))?;
+                        .map_err(|e| Error::new(ErrorCode::StreamProtocol, e.to_string()))?;
 
                     if let Some(candidate) = value
                         .get("candidates")
@@ -373,14 +373,14 @@ fn text_content_from_parts(parts: &[ContentPart]) -> String {
         .join("")
 }
 
-fn normalize_google_response(body: Value) -> Result<GenerateTextResponse, AiError> {
+fn normalize_google_response(body: Value) -> Result<GenerateTextResponse, Error> {
     let Some(candidate) = body
         .get("candidates")
         .and_then(Value::as_array)
         .and_then(|arr| arr.first())
     else {
-        return Err(AiError::new(
-            AiErrorCode::InvalidResponse,
+        return Err(Error::new(
+            ErrorCode::InvalidResponse,
             "google response missing candidates[0]",
         ));
     };

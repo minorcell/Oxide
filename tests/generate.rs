@@ -1,4 +1,4 @@
-use aquaregia::{AiErrorCode, GenerateTextRequest, LlmClient, Message, OpenAi, openai};
+use aquaregia::{ErrorCode, GenerateTextRequest, LlmClient, Message, OpenAi, openai};
 use serde_json::json;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -70,7 +70,7 @@ async fn openai_401_maps_to_auth_failed() {
         .await
         .expect_err("request should fail");
 
-    assert_eq!(err.code, AiErrorCode::AuthFailed);
+    assert_eq!(err.code, ErrorCode::AuthFailed);
     assert_eq!(err.status, Some(401));
     assert!(!err.retryable);
 }
