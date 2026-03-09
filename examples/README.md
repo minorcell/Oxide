@@ -58,7 +58,6 @@
 2. `basic_stream.rs`
 3. `agent_minimal.rs`
 4. `tools_max_steps.rs`
-5. `google_generate.rs`
-6. `openai_compatible_custom.rs`
-7. `mini_claude_code.rs`
-8. `prepare_hooks.rs`
+5. `openai_compatible_custom.rs`
+6. `mini_claude_code.rs`
+7. `prepare_hooks.rs`
