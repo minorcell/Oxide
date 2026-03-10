@@ -13,7 +13,7 @@ use crate::model_adapters::{ModelAdapter, check_response_status, map_send_error}
 use crate::stream::drain_sse_frames;
 use crate::types::{
     Anthropic, ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, Message,
-    MessageRole, StreamEvent, TextStream, ToolCall, Usage,
+    MessageRole, ReasoningPart, StreamEvent, TextStream, ToolCall, Usage,
 };
 
 pub const PROVIDER_SLUG: &str = "anthropic";
@@ -116,6 +116,7 @@ impl ModelAdapter<Anthropic> for AnthropicAdapter {
         let stream = try_stream! {
             let mut buffer = String::new();
             let mut pending_calls: HashMap<u64, PendingToolUse> = HashMap::new();
+            let mut reasoning_blocks: HashMap<u64, (String, Option<Value>)> = HashMap::new();
             let mut done = false;
 
             while let Some(chunk) = byte_stream.next().await {
@@ -159,6 +160,50 @@ impl ModelAdapter<Anthropic> for AnthropicAdapter {
                                                 }
                                             }
                                         }
+                                        "thinking_delta" => {
+                                            if let (Some(index), Some(reasoning_delta)) = (
+                                                value.get("index").and_then(Value::as_u64),
+                                                value
+                                                    .get("delta")
+                                                    .and_then(|d| d.get("thinking"))
+                                                    .and_then(Value::as_str),
+                                            ) {
+                                                if !reasoning_delta.is_empty() {
+                                                    let (block_id, _) = reasoning_blocks
+                                                        .entry(index)
+                                                        .or_insert_with(|| (format!("reasoning-{index}"), None));
+                                                    yield StreamEvent::ReasoningDelta {
+                                                        block_id: block_id.clone(),
+                                                        text: reasoning_delta.to_string(),
+                                                        provider_metadata: None,
+                                                    };
+                                                }
+                                            }
+                                        }
+                                        "signature_delta" => {
+                                            if let (Some(index), Some(signature)) = (
+                                                value.get("index").and_then(Value::as_u64),
+                                                value
+                                                    .get("delta")
+                                                    .and_then(|d| d.get("signature"))
+                                                    .and_then(Value::as_str),
+                                            ) {
+                                                let metadata = Some(json!({
+                                                    "anthropic": {
+                                                        "signature": signature,
+                                                    }
+                                                }));
+                                                let (block_id, block_metadata) = reasoning_blocks
+                                                    .entry(index)
+                                                    .or_insert_with(|| (format!("reasoning-{index}"), None));
+                                                *block_metadata = metadata.clone();
+                                                yield StreamEvent::ReasoningDelta {
+                                                    block_id: block_id.clone(),
+                                                    text: String::new(),
+                                                    provider_metadata: metadata,
+                                                };
+                                            }
+                                        }
                                         "input_json_delta" => {
                                             if let Some(index) = value.get("index").and_then(Value::as_u64) {
                                                 let entry = pending_calls.entry(index).or_default();
@@ -178,18 +223,48 @@ impl ModelAdapter<Anthropic> for AnthropicAdapter {
                             "content_block_start" => {
                                 if let Some(index) = value.get("index").and_then(Value::as_u64) {
                                     let block = value.get("content_block").cloned().unwrap_or(Value::Null);
-                                    if block.get("type").and_then(Value::as_str) == Some("tool_use") {
-                                        let entry = pending_calls.entry(index).or_default();
-                                        entry.call_id = block.get("id").and_then(Value::as_str).map(ToOwned::to_owned);
-                                        entry.tool_name = block.get("name").and_then(Value::as_str).map(ToOwned::to_owned);
-                                        if let Some(input) = block.get("input") {
-                                            entry.args_json = Some(input.clone());
+                                    match block.get("type").and_then(Value::as_str) {
+                                        Some("tool_use") => {
+                                            let entry = pending_calls.entry(index).or_default();
+                                            entry.call_id = block.get("id").and_then(Value::as_str).map(ToOwned::to_owned);
+                                            entry.tool_name = block.get("name").and_then(Value::as_str).map(ToOwned::to_owned);
+                                            if let Some(input) = block.get("input") {
+                                                entry.args_json = Some(input.clone());
+                                            }
                                         }
+                                        Some("thinking") => {
+                                            let block_id = format!("reasoning-{index}");
+                                            reasoning_blocks.insert(index, (block_id.clone(), None));
+                                            yield StreamEvent::ReasoningStarted {
+                                                block_id,
+                                                provider_metadata: None,
+                                            };
+                                        }
+                                        Some("redacted_thinking") => {
+                                            let block_id = format!("reasoning-{index}");
+                                            let metadata = Some(json!({
+                                                "anthropic": {
+                                                    "redacted_data": block.get("data").cloned().unwrap_or(Value::Null),
+                                                }
+                                            }));
+                                            reasoning_blocks.insert(index, (block_id.clone(), metadata.clone()));
+                                            yield StreamEvent::ReasoningStarted {
+                                                block_id,
+                                                provider_metadata: metadata,
+                                            };
+                                        }
+                                        _ => {}
                                     }
                                 }
                             }
                             "content_block_stop" => {
                                 if let Some(index) = value.get("index").and_then(Value::as_u64) {
+                                    if let Some((block_id, metadata)) = reasoning_blocks.remove(&index) {
+                                        yield StreamEvent::ReasoningDone {
+                                            block_id,
+                                            provider_metadata: metadata,
+                                        };
+                                    }
                                     if let Some(pending) = pending_calls.remove(&index) {
                                         if let Some(call) = pending.into_tool_call()? {
                                             yield StreamEvent::ToolCallReady { call };
@@ -203,6 +278,12 @@ impl ModelAdapter<Anthropic> for AnthropicAdapter {
                                 }
                             }
                             "message_stop" => {
+                                for (_, (block_id, metadata)) in reasoning_blocks.drain() {
+                                    yield StreamEvent::ReasoningDone {
+                                        block_id,
+                                        provider_metadata: metadata,
+                                    };
+                                }
                                 done = true;
                                 yield StreamEvent::Done;
                             }
@@ -217,6 +298,12 @@ impl ModelAdapter<Anthropic> for AnthropicAdapter {
             }
 
             if !done {
+                for (_, (block_id, metadata)) in reasoning_blocks.drain() {
+                    yield StreamEvent::ReasoningDone {
+                        block_id,
+                        provider_metadata: metadata,
+                    };
+                }
                 Err(Error::new(
                     ErrorCode::StreamProtocol,
                     "anthropic stream closed without message_stop",
@@ -354,6 +441,39 @@ fn to_anthropic_message(message: &Message) -> Value {
                         "type": "text",
                         "text": text,
                     })),
+                    ContentPart::Reasoning(reasoning) => {
+                        let signature = reasoning
+                            .provider_metadata
+                            .as_ref()
+                            .and_then(|meta| meta.get("anthropic"))
+                            .and_then(|meta| meta.get("signature"))
+                            .and_then(Value::as_str);
+                        let redacted_data = reasoning
+                            .provider_metadata
+                            .as_ref()
+                            .and_then(|meta| meta.get("anthropic"))
+                            .and_then(|meta| meta.get("redacted_data"))
+                            .cloned();
+
+                        if let Some(signature) = signature {
+                            content.push(json!({
+                                "type": "thinking",
+                                "thinking": reasoning.text,
+                                "signature": signature,
+                            }));
+                        } else if let Some(redacted_data) = redacted_data {
+                            content.push(json!({
+                                "type": "redacted_thinking",
+                                "data": redacted_data,
+                            }));
+                        } else if !reasoning.text.is_empty() {
+                            // Fall back to text when anthropic-specific reasoning metadata is missing.
+                            content.push(json!({
+                                "type": "text",
+                                "text": reasoning.text,
+                            }));
+                        }
+                    }
                     ContentPart::ToolCall(call) => content.push(json!({
                         "type": "tool_use",
                         "id": call.call_id,
@@ -412,6 +532,7 @@ fn normalize_anthropic_response(body: Value) -> Result<GenerateTextResponse, Err
         })?;
 
     let mut output_text = String::new();
+    let mut reasoning_parts = Vec::new();
     let mut tool_calls = Vec::new();
 
     for block in content {
@@ -420,6 +541,37 @@ fn normalize_anthropic_response(body: Value) -> Result<GenerateTextResponse, Err
                 if let Some(text) = block.get("text").and_then(Value::as_str) {
                     output_text.push_str(text);
                 }
+            }
+            Some("thinking") => {
+                let thinking = block
+                    .get("thinking")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                let signature = block
+                    .get("signature")
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned);
+                reasoning_parts.push(ReasoningPart {
+                    text: thinking,
+                    provider_metadata: signature.map(|signature| {
+                        json!({
+                            "anthropic": {
+                                "signature": signature,
+                            }
+                        })
+                    }),
+                });
+            }
+            Some("redacted_thinking") => {
+                reasoning_parts.push(ReasoningPart {
+                    text: String::new(),
+                    provider_metadata: Some(json!({
+                        "anthropic": {
+                            "redacted_data": block.get("data").cloned().unwrap_or(Value::Null),
+                        }
+                    })),
+                });
             }
             Some("tool_use") => {
                 let call_id = block
@@ -439,6 +591,10 @@ fn normalize_anthropic_response(body: Value) -> Result<GenerateTextResponse, Err
             _ => {}
         }
     }
+    let reasoning_text = reasoning_parts
+        .iter()
+        .map(|part| part.text.as_str())
+        .collect::<String>();
 
     let finish_reason = map_anthropic_finish_reason(
         body.get("stop_reason")
@@ -453,6 +609,8 @@ fn normalize_anthropic_response(body: Value) -> Result<GenerateTextResponse, Err
 
     Ok(GenerateTextResponse {
         output_text,
+        reasoning_text,
+        reasoning_parts,
         finish_reason,
         usage,
         tool_calls,
@@ -466,6 +624,7 @@ fn parse_anthropic_usage(value: &Value) -> Option<Usage> {
     Some(Usage {
         input_tokens,
         output_tokens,
+        reasoning_tokens: 0,
         total_tokens: input_tokens.saturating_add(output_tokens),
     })
 }

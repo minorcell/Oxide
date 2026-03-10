@@ -14,7 +14,7 @@ use crate::model_adapters::{ModelAdapter, check_response_status, map_send_error}
 use crate::stream::drain_sse_frames;
 use crate::types::{
     ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, Message, MessageRole,
-    OpenAiCompatible, StreamEvent, TextStream, ToolCall, Usage,
+    OpenAiCompatible, ReasoningPart, StreamEvent, TextStream, ToolCall, Usage,
 };
 
 pub const PROVIDER_SLUG: &str = "openai-compatible";
@@ -202,6 +202,8 @@ impl ModelAdapter<OpenAiCompatible> for OpenAiCompatibleAdapter {
             let mut buffer = String::new();
             let mut tool_partial: BTreeMap<usize, PartialToolCall> = BTreeMap::new();
             let mut done = false;
+            let mut reasoning_active = false;
+            let reasoning_block_id = "reasoning-0".to_string();
 
             while let Some(chunk) = byte_stream.next().await {
                 if cancel_token_stream.as_ref().map(|t| t.is_cancelled()).unwrap_or(false) {
@@ -216,6 +218,13 @@ impl ModelAdapter<OpenAiCompatible> for OpenAiCompatibleAdapter {
                 for frame in frames {
                     let data = frame.data.trim();
                     if data == "[DONE]" {
+                        if reasoning_active {
+                            yield StreamEvent::ReasoningDone {
+                                block_id: reasoning_block_id.clone(),
+                                provider_metadata: None,
+                            };
+                            reasoning_active = false;
+                        }
                         done = true;
                         yield StreamEvent::Done;
                         break;
@@ -223,6 +232,34 @@ impl ModelAdapter<OpenAiCompatible> for OpenAiCompatibleAdapter {
 
                     let value: Value = serde_json::from_str(data)
                         .map_err(|e| Error::new(ErrorCode::StreamProtocol, e.to_string()))?;
+                    if let Some(reasoning_delta) = value
+                        .get("choices")
+                        .and_then(Value::as_array)
+                        .and_then(|arr| arr.first())
+                        .and_then(|choice| choice.get("delta"))
+                        .and_then(|delta| {
+                            delta
+                                .get("reasoning_content")
+                                .or_else(|| delta.get("reasoning"))
+                        })
+                        .and_then(Value::as_str)
+                    {
+                        if !reasoning_delta.is_empty() {
+                            if !reasoning_active {
+                                yield StreamEvent::ReasoningStarted {
+                                    block_id: reasoning_block_id.clone(),
+                                    provider_metadata: None,
+                                };
+                                reasoning_active = true;
+                            }
+                            yield StreamEvent::ReasoningDelta {
+                                block_id: reasoning_block_id.clone(),
+                                text: reasoning_delta.to_string(),
+                                provider_metadata: None,
+                            };
+                        }
+                    }
+
                     if let Some(text_delta) = value
                         .get("choices")
                         .and_then(Value::as_array)
@@ -232,6 +269,13 @@ impl ModelAdapter<OpenAiCompatible> for OpenAiCompatibleAdapter {
                         .and_then(Value::as_str)
                     {
                         if !text_delta.is_empty() {
+                            if reasoning_active {
+                                yield StreamEvent::ReasoningDone {
+                                    block_id: reasoning_block_id.clone(),
+                                    provider_metadata: None,
+                                };
+                                reasoning_active = false;
+                            }
                             yield StreamEvent::TextDelta {
                                 text: text_delta.to_string(),
                             };
@@ -246,6 +290,13 @@ impl ModelAdapter<OpenAiCompatible> for OpenAiCompatibleAdapter {
                         .and_then(|delta| delta.get("tool_calls"))
                         .and_then(Value::as_array)
                     {
+                        if reasoning_active {
+                            yield StreamEvent::ReasoningDone {
+                                block_id: reasoning_block_id.clone(),
+                                provider_metadata: None,
+                            };
+                            reasoning_active = false;
+                        }
                         for call in tool_calls {
                             if let Some(index) = call.get("index").and_then(Value::as_u64) {
                                 let index = index as usize;
@@ -297,6 +348,13 @@ impl ModelAdapter<OpenAiCompatible> for OpenAiCompatibleAdapter {
                 if done {
                     break;
                 }
+            }
+
+            if reasoning_active {
+                yield StreamEvent::ReasoningDone {
+                    block_id: reasoning_block_id,
+                    provider_metadata: None,
+                };
             }
 
             if !done {
@@ -411,6 +469,7 @@ fn to_openai_message(message: &Message) -> Value {
             "content": text_content_from_parts(&message.parts),
         }),
         MessageRole::Assistant => {
+            let reasoning_content = reasoning_content_from_parts(&message.parts);
             let tool_calls: Vec<Value> = message
                 .parts
                 .iter()
@@ -429,19 +488,19 @@ fn to_openai_message(message: &Message) -> Value {
                     }
                 })
                 .collect();
-
-            if tool_calls.is_empty() {
-                json!({
-                    "role": "assistant",
-                    "content": text_content_from_parts(&message.parts),
-                })
-            } else {
-                json!({
-                    "role": "assistant",
-                    "content": text_content_from_parts(&message.parts),
-                    "tool_calls": tool_calls,
-                })
+            let mut payload = Map::new();
+            payload.insert("role".to_string(), Value::String("assistant".to_string()));
+            payload.insert("content".to_string(), text_content_from_parts(&message.parts));
+            if !reasoning_content.is_empty() {
+                payload.insert(
+                    "reasoning_content".to_string(),
+                    Value::String(reasoning_content),
+                );
             }
+            if !tool_calls.is_empty() {
+                payload.insert("tool_calls".to_string(), Value::Array(tool_calls));
+            }
+            Value::Object(payload)
         }
         MessageRole::Tool => {
             let tool_result = message.parts.iter().find_map(|part| {
@@ -482,6 +541,20 @@ fn text_content_from_parts(parts: &[ContentPart]) -> Value {
     Value::String(texts.join(""))
 }
 
+fn reasoning_content_from_parts(parts: &[ContentPart]) -> String {
+    parts
+        .iter()
+        .filter_map(|part| {
+            if let ContentPart::Reasoning(reasoning) = part {
+                Some(reasoning.text.clone())
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("")
+}
+
 fn normalize_openai_response(body: Value) -> Result<GenerateTextResponse, Error> {
     let Some(choice) = body
         .get("choices")
@@ -503,6 +576,20 @@ fn normalize_openai_response(body: Value) -> Result<GenerateTextResponse, Error>
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string();
+    let reasoning_text = message
+        .get("reasoning_content")
+        .or_else(|| message.get("reasoning"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let reasoning_parts = if reasoning_text.is_empty() {
+        Vec::new()
+    } else {
+        vec![ReasoningPart {
+            text: reasoning_text.clone(),
+            provider_metadata: None,
+        }]
+    };
 
     let tool_calls = message
         .get("tool_calls")
@@ -530,6 +617,8 @@ fn normalize_openai_response(body: Value) -> Result<GenerateTextResponse, Error>
 
     Ok(GenerateTextResponse {
         output_text,
+        reasoning_text,
+        reasoning_parts,
         finish_reason,
         usage,
         tool_calls,
@@ -573,6 +662,12 @@ fn parse_openai_tool_call(value: &Value) -> Result<ToolCall, Error> {
 fn parse_openai_usage(value: &Value) -> Option<Usage> {
     let input_tokens = value.get("prompt_tokens")?.as_u64()? as u32;
     let output_tokens = value.get("completion_tokens")?.as_u64()? as u32;
+    let reasoning_tokens = value
+        .get("completion_tokens_details")
+        .and_then(|details| details.get("reasoning_tokens"))
+        .and_then(Value::as_u64)
+        .map(|n| n as u32)
+        .unwrap_or(0);
     let total_tokens = value
         .get("total_tokens")
         .and_then(Value::as_u64)
@@ -581,6 +676,7 @@ fn parse_openai_usage(value: &Value) -> Option<Usage> {
     Some(Usage {
         input_tokens,
         output_tokens,
+        reasoning_tokens,
         total_tokens,
     })
 }

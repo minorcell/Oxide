@@ -13,7 +13,7 @@ use crate::model_adapters::{ModelAdapter, check_response_status, map_send_error}
 use crate::stream::drain_sse_frames;
 use crate::types::{
     ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, Google, Message,
-    MessageRole, StreamEvent, TextStream, ToolCall, Usage,
+    MessageRole, ReasoningPart, StreamEvent, TextStream, ToolCall, Usage,
 };
 
 pub const PROVIDER_SLUG: &str = "google";
@@ -124,6 +124,9 @@ impl ModelAdapter<Google> for GoogleAdapter {
             let mut buffer = String::new();
             let mut done = false;
             let mut tool_counter = 0u32;
+            let mut reasoning_counter = 0u32;
+            let mut current_reasoning_id: Option<String> = None;
+            let mut current_reasoning_metadata: Option<Value> = None;
 
             while let Some(chunk) = byte_stream.next().await {
                 if cancel_token_stream.as_ref().map(|t| t.is_cancelled()).unwrap_or(false) {
@@ -155,16 +158,47 @@ impl ModelAdapter<Google> for GoogleAdapter {
                             .and_then(Value::as_array)
                         {
                             for part in parts {
+                                let reasoning_metadata = thought_signature_metadata(part);
                                 if let Some(text) = part.get("text").and_then(Value::as_str) {
                                     if !text.is_empty() {
-                                        yield StreamEvent::TextDelta {
-                                            text: text.to_string(),
-                                        };
+                                        if part.get("thought").and_then(Value::as_bool) == Some(true) {
+                                            if current_reasoning_id.is_none() {
+                                                reasoning_counter = reasoning_counter.saturating_add(1);
+                                                let block_id = format!("reasoning-{reasoning_counter}");
+                                                current_reasoning_id = Some(block_id.clone());
+                                                current_reasoning_metadata = reasoning_metadata.clone();
+                                                yield StreamEvent::ReasoningStarted {
+                                                    block_id,
+                                                    provider_metadata: reasoning_metadata.clone(),
+                                                };
+                                            }
+                                            yield StreamEvent::ReasoningDelta {
+                                                block_id: current_reasoning_id.clone().unwrap_or_else(|| "reasoning-0".to_string()),
+                                                text: text.to_string(),
+                                                provider_metadata: reasoning_metadata.clone(),
+                                            };
+                                        } else {
+                                            if let Some(block_id) = current_reasoning_id.take() {
+                                                yield StreamEvent::ReasoningDone {
+                                                    block_id,
+                                                    provider_metadata: current_reasoning_metadata.take(),
+                                                };
+                                            }
+                                            yield StreamEvent::TextDelta {
+                                                text: text.to_string(),
+                                            };
+                                        }
                                     }
                                 }
 
                                 if let Some(function_call) = part.get("functionCall") {
                                     if let Some(name) = function_call.get("name").and_then(Value::as_str) {
+                                        if let Some(block_id) = current_reasoning_id.take() {
+                                            yield StreamEvent::ReasoningDone {
+                                                block_id,
+                                                provider_metadata: current_reasoning_metadata.take(),
+                                            };
+                                        }
                                         let args_json = function_call
                                             .get("args")
                                             .cloned()
@@ -199,6 +233,12 @@ impl ModelAdapter<Google> for GoogleAdapter {
                 }
             }
 
+            if let Some(block_id) = current_reasoning_id.take() {
+                yield StreamEvent::ReasoningDone {
+                    block_id,
+                    provider_metadata: current_reasoning_metadata.take(),
+                };
+            }
             yield StreamEvent::Done;
         };
 
@@ -312,6 +352,20 @@ fn to_google_messages(messages: &[Message]) -> (Vec<Value>, Option<String>) {
                                 parts.push(json!({ "text": text }));
                             }
                         }
+                        ContentPart::Reasoning(reasoning) => {
+                            if !reasoning.text.is_empty() {
+                                let mut reasoning_part = Map::new();
+                                reasoning_part.insert("text".to_string(), Value::String(reasoning.text.clone()));
+                                reasoning_part.insert("thought".to_string(), Value::Bool(true));
+                                if let Some(signature) = thought_signature_from_provider_metadata(reasoning.provider_metadata.as_ref()) {
+                                    reasoning_part.insert(
+                                        "thoughtSignature".to_string(),
+                                        Value::String(signature),
+                                    );
+                                }
+                                parts.push(Value::Object(reasoning_part));
+                            }
+                        }
                         ContentPart::ToolCall(call) => {
                             parts.push(json!({
                                 "functionCall": {
@@ -407,6 +461,7 @@ fn normalize_google_response(body: Value) -> Result<GenerateTextResponse, Error>
     };
 
     let mut output_text = String::new();
+    let mut reasoning_parts = Vec::new();
     let mut tool_calls = Vec::new();
 
     if let Some(parts) = candidate
@@ -416,7 +471,14 @@ fn normalize_google_response(body: Value) -> Result<GenerateTextResponse, Error>
     {
         for (index, part) in parts.iter().enumerate() {
             if let Some(text) = part.get("text").and_then(Value::as_str) {
-                output_text.push_str(text);
+                if part.get("thought").and_then(Value::as_bool) == Some(true) {
+                    reasoning_parts.push(ReasoningPart {
+                        text: text.to_string(),
+                        provider_metadata: thought_signature_metadata(part),
+                    });
+                } else {
+                    output_text.push_str(text);
+                }
             }
 
             if let Some(function_call) = part.get("functionCall") {
@@ -435,6 +497,10 @@ fn normalize_google_response(body: Value) -> Result<GenerateTextResponse, Error>
             }
         }
     }
+    let reasoning_text = reasoning_parts
+        .iter()
+        .map(|part| part.text.as_str())
+        .collect::<String>();
 
     let finish_reason = map_google_finish_reason(
         candidate
@@ -451,6 +517,8 @@ fn normalize_google_response(body: Value) -> Result<GenerateTextResponse, Error>
 
     Ok(GenerateTextResponse {
         output_text,
+        reasoning_text,
+        reasoning_parts,
         finish_reason,
         usage,
         tool_calls,
@@ -460,7 +528,13 @@ fn normalize_google_response(body: Value) -> Result<GenerateTextResponse, Error>
 
 fn parse_google_usage(value: &Value) -> Option<Usage> {
     let input_tokens = value.get("promptTokenCount")?.as_u64()? as u32;
-    let output_tokens = value.get("candidatesTokenCount")?.as_u64()? as u32;
+    let text_output_tokens = value.get("candidatesTokenCount")?.as_u64()? as u32;
+    let reasoning_tokens = value
+        .get("thoughtsTokenCount")
+        .and_then(Value::as_u64)
+        .map(|v| v as u32)
+        .unwrap_or(0);
+    let output_tokens = text_output_tokens.saturating_add(reasoning_tokens);
     let total_tokens = value
         .get("totalTokenCount")
         .and_then(Value::as_u64)
@@ -469,8 +543,29 @@ fn parse_google_usage(value: &Value) -> Option<Usage> {
     Some(Usage {
         input_tokens,
         output_tokens,
+        reasoning_tokens,
         total_tokens,
     })
+}
+
+fn thought_signature_from_provider_metadata(provider_metadata: Option<&Value>) -> Option<String> {
+    provider_metadata
+        .and_then(|meta| meta.get("google"))
+        .and_then(|meta| meta.get("thought_signature"))
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+}
+
+fn thought_signature_metadata(part: &Value) -> Option<Value> {
+    part.get("thoughtSignature")
+        .and_then(Value::as_str)
+        .map(|signature| {
+            json!({
+                "google": {
+                    "thought_signature": signature,
+                }
+            })
+        })
 }
 
 fn map_google_finish_reason(reason: &str, has_tool_calls: bool) -> FinishReason {

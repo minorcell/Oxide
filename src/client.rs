@@ -356,6 +356,8 @@ impl<P: ProviderMarker> BoundClient<P> {
                 let step_state = AgentStep {
                     step,
                     output_text: response.output_text.clone(),
+                    reasoning_text: response.reasoning_text.clone(),
+                    reasoning_parts: response.reasoning_parts.clone(),
                     finish_reason: response.finish_reason.clone(),
                     usage: response.usage.clone(),
                     tool_calls: Vec::new(),
@@ -398,6 +400,8 @@ impl<P: ProviderMarker> BoundClient<P> {
             let step_state = AgentStep {
                 step,
                 output_text: response.output_text.clone(),
+                reasoning_text: response.reasoning_text.clone(),
+                reasoning_parts: response.reasoning_parts.clone(),
                 finish_reason: response.finish_reason.clone(),
                 usage: response.usage.clone(),
                 tool_calls: response.tool_calls.clone(),
@@ -474,6 +478,9 @@ fn backoff_delay(attempt: u8) -> Duration {
 
 fn assistant_message_from_response(response: &GenerateTextResponse) -> Message {
     let mut parts = Vec::new();
+    for reasoning in &response.reasoning_parts {
+        parts.push(ContentPart::Reasoning(reasoning.clone()));
+    }
     if !response.output_text.is_empty() {
         parts.push(ContentPart::Text(response.output_text.clone()));
     }

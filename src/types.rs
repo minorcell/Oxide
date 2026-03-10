@@ -222,8 +222,16 @@ impl Message {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ContentPart {
     Text(String),
+    Reasoning(ReasoningPart),
     ToolCall(ToolCall),
     ToolResult(ToolResult),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReasoningPart {
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_metadata: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -564,6 +572,10 @@ pub struct AgentToolCallFinish {
 pub struct AgentStep {
     pub step: u8,
     pub output_text: String,
+    #[serde(default)]
+    pub reasoning_text: String,
+    #[serde(default)]
+    pub reasoning_parts: Vec<ReasoningPart>,
     pub finish_reason: FinishReason,
     pub usage: Usage,
     pub tool_calls: Vec<ToolCall>,
@@ -612,6 +624,10 @@ pub(crate) type StopPredicate = Arc<dyn Fn(&AgentStep) -> bool + Send + Sync>;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GenerateTextResponse {
     pub output_text: String,
+    #[serde(default)]
+    pub reasoning_text: String,
+    #[serde(default)]
+    pub reasoning_parts: Vec<ReasoningPart>,
     pub finish_reason: FinishReason,
     pub usage: Usage,
     pub tool_calls: Vec<ToolCall>,
@@ -640,6 +656,8 @@ pub enum FinishReason {
 pub struct Usage {
     pub input_tokens: u32,
     pub output_tokens: u32,
+    #[serde(default)]
+    pub reasoning_tokens: u32,
     pub total_tokens: u32,
 }
 
@@ -650,6 +668,7 @@ impl std::ops::Add for Usage {
         Usage {
             input_tokens: self.input_tokens.saturating_add(rhs.input_tokens),
             output_tokens: self.output_tokens.saturating_add(rhs.output_tokens),
+            reasoning_tokens: self.reasoning_tokens.saturating_add(rhs.reasoning_tokens),
             total_tokens: self.total_tokens.saturating_add(rhs.total_tokens),
         }
     }
@@ -659,12 +678,29 @@ impl std::ops::AddAssign for Usage {
     fn add_assign(&mut self, rhs: Self) {
         self.input_tokens = self.input_tokens.saturating_add(rhs.input_tokens);
         self.output_tokens = self.output_tokens.saturating_add(rhs.output_tokens);
+        self.reasoning_tokens = self.reasoning_tokens.saturating_add(rhs.reasoning_tokens);
         self.total_tokens = self.total_tokens.saturating_add(rhs.total_tokens);
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum StreamEvent {
+    ReasoningStarted {
+        block_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider_metadata: Option<Value>,
+    },
+    ReasoningDelta {
+        block_id: String,
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider_metadata: Option<Value>,
+    },
+    ReasoningDone {
+        block_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider_metadata: Option<Value>,
+    },
     TextDelta { text: String },
     ToolCallReady { call: ToolCall },
     Usage { usage: Usage },

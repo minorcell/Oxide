@@ -57,6 +57,7 @@ pub use types::{
     OpenAiCompatible,
     ProviderKind,
     ProviderMarker,
+    ReasoningPart,
     StreamEvent,
     TextDeltaStream,
     TextStream,

@@ -11,6 +11,38 @@ pub fn stream_to_sse(
 ) -> Sse<impl futures_core::Stream<Item = Result<Event, Infallible>>> {
     let mapped = stream.map(|item| {
         let event = match item {
+            Ok(StreamEvent::ReasoningStarted {
+                block_id,
+                provider_metadata,
+            }) => Event::default().event("reasoning_start").data(
+                json!({
+                    "block_id": block_id,
+                    "provider_metadata": provider_metadata,
+                })
+                .to_string(),
+            ),
+            Ok(StreamEvent::ReasoningDelta {
+                block_id,
+                text,
+                provider_metadata,
+            }) => Event::default().event("reasoning_token").data(
+                json!({
+                    "block_id": block_id,
+                    "text": text,
+                    "provider_metadata": provider_metadata,
+                })
+                .to_string(),
+            ),
+            Ok(StreamEvent::ReasoningDone {
+                block_id,
+                provider_metadata,
+            }) => Event::default().event("reasoning_end").data(
+                json!({
+                    "block_id": block_id,
+                    "provider_metadata": provider_metadata,
+                })
+                .to_string(),
+            ),
             Ok(StreamEvent::TextDelta { text }) => Event::default()
                 .event("token")
                 .data(json!({ "text": text }).to_string()),
