@@ -1,3 +1,45 @@
+//! Agent runtime and builder APIs for Aquaregia.
+//!
+//! This module provides the multi-step tool-using agent abstraction:
+//!
+//! - [`Agent<P>`]: Main agent runtime for tool loops
+//! - [`AgentBuilder<P>`]: Builder for configuring agent behavior
+//! - [`AgentRunPlan<P>`]: Mutable plan for customizing agent runs
+//!
+//! ## Agent Architecture
+//!
+//! The agent implements a tool-use loop:
+//! 1. Send messages to the LLM with available tools
+//! 2. If the model requests tool calls, execute them
+//! 3. Send tool results back to the model
+//! 4. Repeat until the model produces a final answer
+//!
+//! ## Example
+//!
+//! ```rust,no_run
+//! use aquaregia::{Agent, LlmClient, tool};
+//! use serde_json::{Value, json};
+//!
+//! #[tool(description = "Get weather by city")]
+//! async fn get_weather(city: String) -> Result<Value, String> {
+//!     Ok(json!({ "city": city, "temp_c": 23, "condition": "sunny" }))
+//! }
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! let client = LlmClient::openai("api-key").build()?;
+//!
+//! let agent = Agent::builder(client, "gpt-4o")
+//!     .instructions("You can call tools before answering.")
+//!     .tools([get_weather])
+//!     .max_steps(4)
+//!     .build()?;
+//!
+//! let out = agent.run("What is the weather in Shanghai?").await?;
+//! println!("{}", out.output_text);
+//! # Ok(())
+//! # }
+//! ```
+
 use std::sync::Arc;
 
 use tokio_util::sync::CancellationToken;
@@ -11,12 +53,31 @@ use crate::types::{
     validate_model_ref, validate_sampling,
 };
 
+/// Callback type for mutating agent run plans before execution.
 pub(crate) type PrepareCallHook<P> = Arc<dyn Fn(&mut AgentRunPlan<P>) + Send + Sync>;
 
 /// Mutable plan for one agent run before execution starts.
 ///
-/// This is passed to `prepare_call` so callers can adjust request-level settings
-/// (model, messages, tools, sampling, limits) per invocation.
+/// This struct is passed to `prepare_call` callbacks so callers can adjust
+/// request-level settings (model, messages, tools, sampling, limits) per invocation.
+/// This enables dynamic model selection, tool filtering, and parameter tuning.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// # use aquaregia::{Agent, LlmClient};
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// let client = LlmClient::openai("key").build()?;
+///
+/// let agent = Agent::builder(client, "gpt-4o")
+///     .prepare_call(|plan| {
+///         // Dynamically adjust temperature based on task
+///         plan.temperature = Some(0.7);
+///     })
+///     .build()?;
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug, Clone)]
 pub struct AgentRunPlan<P: ProviderMarker> {
     /// Model selected for this run.
@@ -38,25 +99,62 @@ pub struct AgentRunPlan<P: ProviderMarker> {
 }
 
 /// Multi-step tool-using agent bound to one provider and one default model.
+///
+/// The agent implements a tool-use loop that:
+/// 1. Sends messages to the LLM with available tools
+/// 2. Executes tool calls requested by the model
+/// 3. Sends tool results back to the model
+/// 4. Repeats until the model produces a final answer or max_steps is reached
+///
+/// ## Features
+///
+/// - **Configurable hooks**: Callbacks for run start, step start/finish, tool call start/finish
+/// - **Dynamic planning**: `prepare_call` and `prepare_step` callbacks for runtime adjustments
+/// - **Early stopping**: `stop_when` predicate for custom termination conditions
+/// - **Cancellation**: Support for `CancellationToken` to cancel running agents
+/// - **Error policies**: Configurable tool error handling (`ContinueAsToolResult` or `FailFast`)
+///
+/// ## Type Parameters
+///
+/// * `P` - Provider marker type encoding the bound provider at compile time
 pub struct Agent<P: ProviderMarker> {
+    /// Bound client for making LLM requests.
     client: Arc<BoundClient<P>>,
+    /// Default model for this agent.
     model: ModelRef<P>,
+    /// System instructions prepended to runs.
     instructions: Option<String>,
+    /// Registered tools available to the agent.
     tools: Vec<Tool>,
+    /// Maximum number of tool-use loop iterations.
     max_steps: Option<u8>,
+    /// Default sampling temperature.
     temperature: Option<f32>,
+    /// Default nucleus sampling value.
     top_p: Option<f32>,
+    /// Default maximum output token budget.
     max_output_tokens: Option<u32>,
+    /// Default stop sequences.
     stop_sequences: Vec<String>,
+    /// Callback to mutate run plans before execution.
     prepare_call: Option<PrepareCallHook<P>>,
+    /// Callback to mutate step inputs before each model call.
     prepare_step: Option<PrepareStepHook<P>>,
+    /// Callback fired once before the first step.
     on_start: Option<Hook<AgentStart>>,
+    /// Callback fired at the beginning of each step.
     on_step_start: Option<Hook<AgentStepStart>>,
+    /// Callback fired right before each tool execution.
     on_tool_call_start: Option<Hook<AgentToolCallStart>>,
+    /// Callback fired right after each tool execution.
     on_tool_call_finish: Option<Hook<AgentToolCallFinish>>,
+    /// Callback fired after each completed step.
     on_step_finish: Option<Hook<AgentStep>>,
+    /// Callback fired once when the run finishes successfully.
     on_finish: Option<Hook<AgentFinish>>,
+    /// Early-stop predicate evaluated after each step.
     stop_when: Option<StopPredicate>,
+    /// Policy for handling tool execution errors.
     tool_error_policy: ToolErrorPolicy,
 }
 

@@ -1,3 +1,38 @@
+//! OpenAI API adapter for Aquaregia.
+//!
+//! This module provides the `OpenAiAdapter` implementation for communicating
+//! with OpenAI's Chat Completions API.
+//!
+//! ## Features
+//!
+//! - Non-streaming and streaming text generation
+//! - Reasoning content extraction (`reasoning_content` field)
+//! - Tool/function calling support
+//! - Usage token parsing with cache details
+//!
+//! ## Supported Models
+//!
+//! - GPT-4o, GPT-4o-mini, GPT-4 Turbo
+//! - o1, o3 reasoning models
+//! - Legacy GPT-3.5 Turbo
+//!
+//! ## Example
+//!
+//! ```rust,no_run
+//! use aquaregia::{LlmClient, GenerateTextRequest};
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! let client = LlmClient::openai("api-key").build()?;
+//!
+//! let response = client
+//!     .generate(GenerateTextRequest::from_user_prompt("gpt-4o", "Hello!"))
+//!     .await?;
+//!
+//! println!("{}", response.output_text);
+//! # Ok(())
+//! # }
+//! ```
+
 #![allow(clippy::collapsible_if)]
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -18,10 +53,13 @@ use crate::types::{
 
 /// Provider slug used in ids and error metadata.
 pub const PROVIDER_SLUG: &str = "openai";
+
 /// Default OpenAI API base URL.
 pub const DEFAULT_BASE_URL: &str = "https://api.openai.com";
 
 /// Runtime settings for the OpenAI adapter.
+///
+/// Contains configuration for API endpoint and authentication.
 pub struct OpenAiAdapterSettings {
     /// Base URL for API requests.
     pub base_url: String,

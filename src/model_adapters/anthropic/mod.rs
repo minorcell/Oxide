@@ -1,3 +1,39 @@
+//! Anthropic API adapter for Aquaregia.
+//!
+//! This module provides the `AnthropicAdapter` implementation for communicating
+//! with Anthropic's Messages API.
+//!
+//! ## Features
+//!
+//! - Non-streaming and streaming text generation
+//! - Thinking/reasoning content support (`thinking` blocks)
+//! - Redacted thinking support
+//! - Tool use with incremental JSON parsing
+//! - Cache token tracking (prompt caching)
+//!
+//! ## Supported Models
+//!
+//! - Claude 3.5 Sonnet, Claude 3.5 Haiku
+//! - Claude 3 Opus, Sonnet, Haiku
+//! - Claude Sonnet 4 and newer
+//!
+//! ## Example
+//!
+//! ```rust,no_run
+//! use aquaregia::{LlmClient, GenerateTextRequest};
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! let client = LlmClient::anthropic("api-key").build()?;
+//!
+//! let response = client
+//!     .generate(GenerateTextRequest::from_user_prompt("claude-sonnet-4-5", "Hello!"))
+//!     .await?;
+//!
+//! println!("{}", response.output_text);
+//! # Ok(())
+//! # }
+//! ```
+
 #![allow(clippy::collapsible_if)]
 use std::collections::HashMap;
 use std::sync::Arc;

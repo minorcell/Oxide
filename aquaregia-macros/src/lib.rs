@@ -1,3 +1,74 @@
+//! Procedural macros for the Aquaregia crate.
+//!
+//! This crate provides the `#[tool]` procedural macro for concise tool definitions
+//! in Aquaregia agents.
+//!
+//! ## The `#[tool]` Macro
+//!
+//! The `#[tool]` macro generates a function that returns a [`aquaregia::Tool`] with
+//! automatic JSON Schema derivation and typed argument handling.
+//!
+//! ### Usage
+//!
+//! ```rust,no_run
+//! use aquaregia::tool;
+//! use serde_json::{Value, json};
+//!
+//! /// Get weather information by city
+//! #[tool(description = "Get weather by city")]
+//! async fn get_weather(city: String) -> Result<Value, String> {
+//!     Ok(json!({ "city": city, "temp_c": 23, "condition": "sunny" }))
+//! }
+//!
+//! // The macro generates:
+//! // - A struct `get_weather_args` with Deserialize and JsonSchema derives
+//! // - A function `get_weather()` that returns a `Tool`
+//! // - Automatic schema validation for arguments
+//! ```
+//!
+//! ### Macro Requirements
+//!
+//! - Must be an `async fn`
+//! - Must return `Result<Value, String>` or similar error type
+//! - Parameters must be simple identifiers with types (no patterns)
+//! - No generic parameters or where clauses (currently)
+//! - No `self` receivers (must be free functions)
+//!
+//! ### Generated Code
+//!
+//! For a function like:
+//!
+//! ```rust,ignore
+//! #[tool(description = "Example tool")]
+//! async fn example(x: String, y: i32) -> Result<Value, String> {
+//!     // body
+//! }
+//! ```
+//!
+//! The macro generates:
+//!
+//! ```rust,ignore
+//! #[derive(Deserialize, JsonSchema)]
+//! struct __AquaregiaToolArgs_example {
+//!     x: String,
+//!     y: i32,
+//! }
+//!
+//! fn example() -> Tool {
+//!     tool("example")
+//!         .description("Example tool")
+//!         .execute(|args: __AquaregiaToolArgs_example| async move {
+//!             __aquaregia_tool_handler_example(args.x, args.y)
+//!                 .await
+//!                 .map_err(|err| ToolExecError::Execution(err.to_string()))
+//!         })
+//! }
+//!
+//! async fn __aquaregia_tool_handler_example(x: String, y: i32) -> Result<Value, String> {
+//!     // original body
+//! }
+//! ```
+
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::parse::Parser;

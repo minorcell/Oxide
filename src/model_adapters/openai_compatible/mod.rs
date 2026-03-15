@@ -1,3 +1,45 @@
+//! OpenAI-compatible API adapter for Aquaregia.
+//!
+//! This module provides the `OpenAiCompatibleAdapter` implementation for communicating
+//! with OpenAI-compatible endpoints such as DeepSeek, local LLM servers (vLLM, Ollama),
+//! and other compatible APIs.
+//!
+//! ## Features
+//!
+//! - Non-streaming and streaming text generation
+//! - Reasoning content extraction (`reasoning_content` or `<think>` tags)
+//! - Tool/function calling support
+//! - Custom headers and query parameters
+//! - Configurable chat completions path
+//! - Optional API key (bearer token or no auth)
+//!
+//! ## Supported Providers
+//!
+//! - DeepSeek API
+//! - vLLM server
+//! - Ollama
+//! - LocalAI
+//! - Any OpenAI-compatible endpoint
+//!
+//! ## Example
+//!
+//! ```rust,no_run
+//! use aquaregia::{LlmClient, GenerateTextRequest};
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! let client = LlmClient::openai_compatible("https://api.deepseek.com")
+//!     .api_key("api-key")
+//!     .build()?;
+//!
+//! let response = client
+//!     .generate(GenerateTextRequest::from_user_prompt("deepseek-chat", "Hello!"))
+//!     .await?;
+//!
+//! println!("{}", response.output_text);
+//! # Ok(())
+//! # }
+//! ```
+
 #![allow(clippy::collapsible_if)]
 use std::collections::BTreeMap;
 use std::collections::HashMap;

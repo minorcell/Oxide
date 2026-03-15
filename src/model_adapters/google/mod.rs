@@ -1,3 +1,38 @@
+//! Google Generative AI API adapter for Aquaregia.
+//!
+//! This module provides the `GoogleAdapter` implementation for communicating
+//! with Google's Generative Language API.
+//!
+//! ## Features
+//!
+//! - Non-streaming and streaming text generation
+//! - Reasoning content with thought signatures
+//! - Function calling (tool use)
+//! - Cache token tracking
+//! - System instructions support
+//!
+//! ## Supported Models
+//!
+//! - Gemini 2.0 Flash, Gemini 2.0 Pro
+//! - Gemini 1.5 Pro, Gemini 1.5 Flash
+//!
+//! ## Example
+//!
+//! ```rust,no_run
+//! use aquaregia::{LlmClient, GenerateTextRequest};
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! let client = LlmClient::google("api-key").build()?;
+//!
+//! let response = client
+//!     .generate(GenerateTextRequest::from_user_prompt("gemini-2.0-flash", "Hello!"))
+//!     .await?;
+//!
+//! println!("{}", response.output_text);
+//! # Ok(())
+//! # }
+//! ```
+
 #![allow(clippy::collapsible_if)]
 use std::collections::HashMap;
 use std::sync::Arc;
