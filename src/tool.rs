@@ -1,3 +1,54 @@
+//! Tool definition, execution, and registry types for Aquaregia agents.
+//!
+//! This module provides the tool abstraction for LLM function calling:
+//!
+//! - [`Tool`]: Runtime tool value with descriptor and executor
+//! - [`ToolDescriptor`]: Serializable tool metadata sent to providers
+//! - [`ToolExecutor`]: Async trait for tool execution
+//! - [`ToolRegistry`]: Validated registry of tools keyed by name
+//! - [`tool()`]: Builder for creating tools with typed arguments
+//! - [`macro@tool`]: Procedural macro for concise tool definitions
+//!
+//! ## Defining Tools
+//!
+//! ### Using the `#[tool]` Macro (Recommended)
+//!
+//! ```rust,no_run
+//! use aquaregia::tool;
+//! use serde_json::{Value, json};
+//!
+//! #[tool(description = "Get weather by city")]
+//! async fn get_weather(city: String) -> Result<Value, String> {
+//!     Ok(json!({ "city": city, "temp_c": 23, "condition": "sunny" }))
+//! }
+//! ```
+//!
+//! ### Using the Tool Builder
+//!
+//! ```rust,no_run
+//! use aquaregia::tool;
+//! use serde::{Deserialize, Serialize};
+//! use serde_json::{Value, json};
+//!
+//! #[derive(Debug, Deserialize, schemars::JsonSchema)]
+//! struct WeatherArgs {
+//!     city: String,
+//! }
+//!
+//! let weather_tool = tool("get_weather")
+//!     .description("Get weather by city")
+//!     .execute(|args: WeatherArgs| async move {
+//!         Ok(json!({ "city": args.city, "temp_c": 23 }))
+//!     });
+//! ```
+//!
+//! ## Tool Execution Flow
+//!
+//! 1. Model requests a tool call with arguments
+//! 2. Agent validates arguments against the tool's JSON Schema
+//! 3. Tool executor runs the async function
+//! 4. Result is sent back to the model
+
 use std::collections::HashMap;
 use std::future::Future;
 use std::marker::PhantomData;

@@ -1,9 +1,46 @@
+//! OpenAI API adapter for Aquaregia.
+//!
+//! This module provides the `OpenAiAdapter` implementation for communicating
+//! with OpenAI's Chat Completions API.
+//!
+//! ## Features
+//!
+//! - Non-streaming and streaming text generation
+//! - Reasoning content extraction (`reasoning_content` field)
+//! - Tool/function calling support
+//! - Usage token parsing with cache details
+//!
+//! ## Supported Models
+//!
+//! - GPT-4o, GPT-4o-mini, GPT-4 Turbo
+//! - o1, o3 reasoning models
+//! - Legacy GPT-3.5 Turbo
+//!
+//! ## Example
+//!
+//! ```rust,no_run
+//! use aquaregia::{LlmClient, GenerateTextRequest};
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! let client = LlmClient::openai("api-key").build()?;
+//!
+//! let response = client
+//!     .generate(GenerateTextRequest::from_user_prompt("gpt-4o", "Hello!"))
+//!     .await?;
+//!
+//! println!("{}", response.output_text);
+//! # Ok(())
+//! # }
+//! ```
+
 #![allow(clippy::collapsible_if)]
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use async_stream::try_stream;
 use async_trait::async_trait;
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
 use futures_util::StreamExt;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde_json::{Map, Value, json};
@@ -12,16 +49,19 @@ use crate::error::{Error, ErrorCode};
 use crate::model_adapters::{ModelAdapter, check_response_status, map_send_error};
 use crate::stream::drain_sse_frames;
 use crate::types::{
-    ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, Message, MessageRole,
-    OpenAi, ReasoningPart, StreamEvent, TextStream, ToolCall, Usage,
+    ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, ImagePart, MediaData,
+    Message, MessageRole, OpenAi, ReasoningPart, StreamEvent, TextStream, ToolCall, Usage,
 };
 
 /// Provider slug used in ids and error metadata.
 pub const PROVIDER_SLUG: &str = "openai";
+
 /// Default OpenAI API base URL.
 pub const DEFAULT_BASE_URL: &str = "https://api.openai.com";
 
 /// Runtime settings for the OpenAI adapter.
+///
+/// Contains configuration for API endpoint and authentication.
 pub struct OpenAiAdapterSettings {
     /// Base URL for API requests.
     pub base_url: String,
@@ -395,7 +435,7 @@ fn to_openai_message(message: &Message) -> Value {
         }),
         MessageRole::User => json!({
             "role": "user",
-            "content": text_content_from_parts(&message.parts),
+            "content": openai_user_content(&message.parts),
         }),
         MessageRole::Assistant => {
             let reasoning_content = reasoning_content_from_parts(&message.parts);
@@ -485,6 +525,39 @@ fn reasoning_content_from_parts(parts: &[ContentPart]) -> String {
         })
         .collect::<Vec<_>>()
         .join("")
+}
+
+fn openai_user_content(parts: &[ContentPart]) -> Value {
+    let has_images = parts.iter().any(|p| matches!(p, ContentPart::Image(_)));
+    if has_images {
+        Value::Array(
+            parts
+                .iter()
+                .filter_map(|part| match part {
+                    ContentPart::Text(text) => Some(json!({ "type": "text", "text": text })),
+                    ContentPart::Image(img) => Some(openai_image_content_part(img)),
+                    _ => None,
+                })
+                .collect(),
+        )
+    } else {
+        text_content_from_parts(parts)
+    }
+}
+
+fn openai_image_content_part(image: &ImagePart) -> Value {
+    let url = match &image.data {
+        MediaData::Url(url) => url.clone(),
+        MediaData::Base64(b64) => {
+            let mt = image.media_type.as_deref().unwrap_or("image/jpeg");
+            format!("data:{};base64,{}", mt, b64)
+        }
+        MediaData::Bytes(bytes) => {
+            let mt = image.media_type.as_deref().unwrap_or("image/jpeg");
+            format!("data:{};base64,{}", mt, STANDARD.encode(bytes))
+        }
+    };
+    json!({ "type": "image_url", "image_url": { "url": url } })
 }
 
 fn normalize_openai_response(body: Value) -> Result<GenerateTextResponse, Error> {

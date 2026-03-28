@@ -1,3 +1,14 @@
+//! Shared request/response types and streaming events for Aquaregia.
+//!
+//! This module defines the core data structures used throughout the Aquaregia SDK:
+//!
+//! - **Provider Markers**: Type-level markers for provider-specific typing (`OpenAi`, `Anthropic`, `Google`, `OpenAiCompatible`)
+//! - **Messages**: Provider-agnostic chat message types with support for text, images, reasoning, and tool content
+//! - **Requests/Responses**: Structured generation request and response types
+//! - **Streaming**: Event types emitted during streaming generation
+//! - **Agent Types**: Event types and plan structures for multi-step agent loops
+//! - **Usage**: Token usage counters with cache and reasoning token support
+
 use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -10,6 +21,9 @@ use crate::error::{Error, ErrorCode};
 use crate::tool::{IntoTool, Tool, ToolDescriptor};
 
 /// Supported provider families.
+///
+/// This enum identifies the provider family for a given request or client configuration.
+/// It is used internally for routing requests to the correct adapter implementation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProviderKind {
     /// OpenAI provider family.
@@ -18,12 +32,23 @@ pub enum ProviderKind {
     Anthropic,
     /// Google provider family.
     Google,
-    /// OpenAI-compatible provider family.
+    /// OpenAI-compatible provider family (e.g., DeepSeek, local LLM servers).
     OpenAiCompatible,
 }
 
 impl ProviderKind {
     /// Parses a provider slug (case-insensitive).
+    ///
+    /// This function converts a string identifier into the corresponding [`ProviderKind`] variant.
+    /// The input is normalized to lowercase before matching.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - Provider slug string (e.g., `"openai"`, `"anthropic"`, `"google"`, `"openai-compatible"`)
+    ///
+    /// # Returns
+    ///
+    /// `Some(ProviderKind)` if the slug matches, `None` otherwise.
     pub fn from_slug(value: &str) -> Option<Self> {
         match value.to_ascii_lowercase().as_str() {
             "openai" => Some(Self::OpenAi),
@@ -35,6 +60,9 @@ impl ProviderKind {
     }
 
     /// Returns the canonical provider slug.
+    ///
+    /// This method returns the normalized string identifier for the provider,
+    /// suitable for use in URLs, logging, or configuration.
     pub fn as_slug(&self) -> &'static str {
         match self {
             Self::OpenAi => "openai",
@@ -46,12 +74,20 @@ impl ProviderKind {
 }
 
 /// Type marker for provider-specific request/response typing.
+///
+/// This trait is used to encode provider information at the type level, enabling
+/// compile-time type safety when working with provider-specific models and requests.
+/// The marker types (`OpenAi`, `Anthropic`, `Google`, `OpenAiCompatible`) implement this trait.
 pub trait ProviderMarker: Clone + Copy + Send + Sync + 'static {
     /// Provider family represented by this marker type.
     const KIND: ProviderKind;
 }
 
 /// OpenAI provider marker.
+///
+/// This marker type is used to create type-safe references to OpenAI models
+/// and requests. It ensures that OpenAI-specific settings and model names
+/// are used consistently throughout the SDK.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct OpenAi;
 
@@ -60,6 +96,10 @@ impl ProviderMarker for OpenAi {
 }
 
 /// Anthropic provider marker.
+///
+/// This marker type is used to create type-safe references to Anthropic models
+/// and requests. It ensures that Anthropic-specific settings and model names
+/// are used consistently throughout the SDK.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Anthropic;
 
@@ -68,6 +108,10 @@ impl ProviderMarker for Anthropic {
 }
 
 /// Google provider marker.
+///
+/// This marker type is used to create type-safe references to Google Generative AI models
+/// and requests. It ensures that Google-specific settings and model names
+/// are used consistently throughout the SDK.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Google;
 
@@ -76,6 +120,10 @@ impl ProviderMarker for Google {
 }
 
 /// OpenAI-compatible provider marker.
+///
+/// This marker type is used to create type-safe references to OpenAI-compatible
+/// endpoints (e.g., DeepSeek, local LLM servers). It ensures that compatible
+/// endpoint settings and model names are used consistently throughout the SDK.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct OpenAiCompatible;
 
@@ -84,15 +132,39 @@ impl ProviderMarker for OpenAiCompatible {
 }
 
 /// Strongly-typed model reference carrying provider information at compile time.
+///
+/// This struct encapsulates a model identifier along with its provider type,
+/// providing type safety and convenience methods for working with models.
+/// The generic parameter `P` encodes the provider at the type level.
+///
+/// # Type Parameters
+///
+/// * `P` - Provider marker type (`OpenAi`, `Anthropic`, `Google`, or `OpenAiCompatible`)
+///
+/// # Example
+///
+/// ```
+/// use aquaregia::{ModelRef, OpenAi};
+///
+/// let model = ModelRef::<OpenAi>::new("gpt-4o");
+/// assert_eq!(model.id(), "openai/gpt-4o");
+/// assert_eq!(model.model(), "gpt-4o");
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelRef<P: ProviderMarker> {
+    /// Provider-local model identifier.
     model: String,
     #[serde(skip)]
+    /// Phantom data encoding the provider type at compile time.
     _marker: PhantomData<P>,
 }
 
 impl<P: ProviderMarker> ModelRef<P> {
     /// Creates a model reference from a provider-local model id.
+    ///
+    /// # Arguments
+    ///
+    /// * `model` - The provider-local model identifier (e.g., `"gpt-4o"`, `"claude-sonnet-4-5"`)
     pub fn new(model: impl Into<String>) -> Self {
         let model = model.into();
         Self {
@@ -102,6 +174,9 @@ impl<P: ProviderMarker> ModelRef<P> {
     }
 
     /// Returns a fully-qualified model id (`<provider>/<model>`).
+    ///
+    /// This method returns the complete model identifier including the provider prefix,
+    /// suitable for logging, display, or configuration purposes.
     pub fn id(&self) -> String {
         format!("{}/{}", P::KIND.as_slug(), self.model)
     }
@@ -117,6 +192,9 @@ impl<P: ProviderMarker> ModelRef<P> {
     }
 
     /// Returns the provider-local model id.
+    ///
+    /// This method returns just the model identifier without the provider prefix,
+    /// as used in API requests to the specific provider.
     pub fn model(&self) -> &str {
         &self.model
     }
@@ -129,6 +207,10 @@ impl<P: ProviderMarker> std::fmt::Display for ModelRef<P> {
 }
 
 /// Converts values into a typed [`ModelRef`].
+///
+/// This trait provides ergonomic conversion into [`ModelRef`] types,
+/// allowing string literals and `String` values to be used directly
+/// in APIs that expect model references.
 pub trait IntoModelRef<P: ProviderMarker> {
     /// Performs the conversion.
     fn into_model_ref(self) -> ModelRef<P>;
@@ -153,23 +235,40 @@ impl<P: ProviderMarker> IntoModelRef<P> for String {
 }
 
 /// Chat message role used across providers.
+///
+/// This enum represents the standard roles in a multi-turn conversation,
+/// following the convention used by major LLM providers.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MessageRole {
-    /// System/instruction message.
+    /// System/instruction message providing behavioral guidelines.
     System,
-    /// User message.
+    /// User message containing a prompt or question.
     User,
-    /// Assistant/model message.
+    /// Assistant/model message containing a response.
     Assistant,
-    /// Tool result message.
+    /// Tool result message containing execution output.
     Tool,
 }
 
 /// Provider-agnostic chat message.
+///
+/// This struct represents a single message in a conversation, supporting
+/// multiple content types through [`ContentPart`] enumeration. Messages
+/// are the fundamental building blocks of LLM conversations.
+///
+/// # Structure
+///
+/// A message consists of:
+/// - A [`MessageRole`] indicating the sender
+/// - A list of [`ContentPart`] items (text, reasoning, tool calls, etc.)
+/// - An optional name for authorship attribution
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
+    /// Message role indicating the sender type.
     pub(crate) role: MessageRole,
+    /// Content parts making up the message body.
     pub(crate) parts: Vec<ContentPart>,
+    /// Optional author/tool name for attribution.
     pub(crate) name: Option<String>,
 }
 
@@ -179,6 +278,15 @@ impl Message {
     /// Prefer the named constructors ([`Message::system_text`], [`Message::user_text`],
     /// [`Message::assistant_text`], [`Message::tool_result`]) for common cases. Use `new` only
     /// when you need to build a message with custom [`ContentPart`] combinations.
+    ///
+    /// # Arguments
+    ///
+    /// * `role` - The message role
+    /// * `parts` - Vector of content parts
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the message parts are invalid for the given role.
     pub fn new(role: MessageRole, parts: Vec<ContentPart>) -> Result<Self, Error> {
         validate_message_parts(role.clone(), &parts)?;
         Ok(Self {
@@ -189,6 +297,13 @@ impl Message {
     }
 
     /// Creates a system message containing one text part.
+    ///
+    /// System messages provide behavioral instructions to the model,
+    /// setting the context and tone for the conversation.
+    ///
+    /// # Arguments
+    ///
+    /// * `text` - The system instruction text
     pub fn system_text(text: impl Into<String>) -> Self {
         Self {
             role: MessageRole::System,
@@ -198,6 +313,12 @@ impl Message {
     }
 
     /// Creates a user message containing one text part.
+    ///
+    /// User messages represent prompts or questions from the end user.
+    ///
+    /// # Arguments
+    ///
+    /// * `text` - The user prompt text
     pub fn user_text(text: impl Into<String>) -> Self {
         Self {
             role: MessageRole::User,
@@ -207,6 +328,12 @@ impl Message {
     }
 
     /// Creates an assistant message containing one text part.
+    ///
+    /// Assistant messages represent model responses in a conversation.
+    ///
+    /// # Arguments
+    ///
+    /// * `text` - The assistant response text
     pub fn assistant_text(text: impl Into<String>) -> Self {
         Self {
             role: MessageRole::Assistant,
@@ -216,6 +343,13 @@ impl Message {
     }
 
     /// Creates a tool-role message containing one tool result part.
+    ///
+    /// Tool messages carry the execution results back to the model
+    /// after a tool call has been processed.
+    ///
+    /// # Arguments
+    ///
+    /// * `result` - The tool execution result
     pub fn tool_result(result: ToolResult) -> Self {
         Self {
             role: MessageRole::Tool,
@@ -225,6 +359,13 @@ impl Message {
     }
 
     /// Attaches an optional author/tool name to the message.
+    ///
+    /// The name field can be used for attribution purposes,
+    /// such as identifying which tool produced a result.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The author or tool name
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = Some(name.into());
         self
@@ -245,6 +386,7 @@ impl Message {
         self.name.as_deref()
     }
 
+    /// Internal constructor for assistant messages with multiple content parts.
     pub(crate) fn assistant_with_parts(parts: Vec<ContentPart>) -> Self {
         Self {
             role: MessageRole::Assistant,
@@ -252,22 +394,98 @@ impl Message {
             name: None,
         }
     }
+
+    /// Creates a user message with a single image URL.
+    pub fn user_image_url(url: impl Into<String>) -> Self {
+        Self {
+            role: MessageRole::User,
+            parts: vec![ContentPart::Image(ImagePart {
+                data: MediaData::Url(url.into()),
+                media_type: None,
+                provider_metadata: None,
+            })],
+            name: None,
+        }
+    }
+
+    /// Creates a user message with image bytes and MIME type.
+    pub fn user_image_bytes(bytes: Vec<u8>, media_type: impl Into<String>) -> Self {
+        Self {
+            role: MessageRole::User,
+            parts: vec![ContentPart::Image(ImagePart {
+                data: MediaData::Bytes(bytes),
+                media_type: Some(media_type.into()),
+                provider_metadata: None,
+            })],
+            name: None,
+        }
+    }
+
+    /// Creates a user message with text and an image URL.
+    pub fn user_text_and_image_url(text: impl Into<String>, url: impl Into<String>) -> Self {
+        Self {
+            role: MessageRole::User,
+            parts: vec![
+                ContentPart::Text(text.into()),
+                ContentPart::Image(ImagePart {
+                    data: MediaData::Url(url.into()),
+                    media_type: None,
+                    provider_metadata: None,
+                }),
+            ],
+            name: None,
+        }
+    }
+}
+
+/// Raw media data for image content parts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum MediaData {
+    /// Remote URL or data URL.
+    Url(String),
+    /// Raw base64 string (no `data:` prefix).
+    Base64(String),
+    /// Raw bytes; adapters will base64-encode as needed.
+    Bytes(Vec<u8>),
+}
+
+/// Image content block for vision inputs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImagePart {
+    /// Image data.
+    pub data: MediaData,
+    /// MIME type (e.g. `"image/jpeg"`).
+    /// Required for Bytes/Base64; optional for Url.
+    pub media_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Optional provider-specific metadata.
+    pub provider_metadata: Option<Value>,
 }
 
 /// Content block used in a message.
+///
+/// This enum represents the different types of content that can appear
+/// in a message, enabling rich multi-modal conversations with support
+/// for text, reasoning traces, tool interactions, and images.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ContentPart {
     /// Plain text content.
     Text(String),
-    /// Provider reasoning content.
+    /// Image content for vision inputs.
+    Image(ImagePart),
+    /// Provider reasoning content (chain-of-thought traces).
     Reasoning(ReasoningPart),
     /// Tool call requested by the model.
     ToolCall(ToolCall),
-    /// Tool execution result.
+    /// Tool execution result returned to the model.
     ToolResult(ToolResult),
 }
 
 /// Reasoning content block.
+///
+/// This struct holds chain-of-thought or reasoning traces generated by
+/// reasoning-capable models. The content may include provider-specific
+/// metadata such as signatures for verification.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReasoningPart {
     /// Reasoning text content.
@@ -278,24 +496,30 @@ pub struct ReasoningPart {
 }
 
 /// Tool call requested by the model.
+///
+/// This struct represents a function/tool invocation request emitted
+/// by the model. It contains all information needed to execute the tool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolCall {
-    /// Provider-generated call identifier.
+    /// Provider-generated call identifier for correlating results.
     pub call_id: String,
     /// Tool name to execute.
     pub tool_name: String,
-    /// JSON arguments for the tool.
+    /// JSON arguments for the tool invocation.
     pub args_json: Value,
 }
 
 /// Tool execution result sent back to the model.
+///
+/// This struct carries the output of a tool execution back to the model,
+/// enabling multi-step tool-using conversations.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolResult {
-    /// Matches [`ToolCall::call_id`].
+    /// Matches [`ToolCall::call_id`] for correlation.
     pub call_id: String,
-    /// JSON output payload.
+    /// JSON output payload from tool execution.
     pub output_json: Value,
-    /// Indicates this payload represents a tool error.
+    /// Indicates whether this payload represents a tool error.
     pub is_error: bool,
 }
 

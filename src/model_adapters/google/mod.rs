@@ -1,9 +1,46 @@
+//! Google Generative AI API adapter for Aquaregia.
+//!
+//! This module provides the `GoogleAdapter` implementation for communicating
+//! with Google's Generative Language API.
+//!
+//! ## Features
+//!
+//! - Non-streaming and streaming text generation
+//! - Reasoning content with thought signatures
+//! - Function calling (tool use)
+//! - Cache token tracking
+//! - System instructions support
+//!
+//! ## Supported Models
+//!
+//! - Gemini 2.0 Flash, Gemini 2.0 Pro
+//! - Gemini 1.5 Pro, Gemini 1.5 Flash
+//!
+//! ## Example
+//!
+//! ```rust,no_run
+//! use aquaregia::{LlmClient, GenerateTextRequest};
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! let client = LlmClient::google("api-key").build()?;
+//!
+//! let response = client
+//!     .generate(GenerateTextRequest::from_user_prompt("gemini-2.0-flash", "Hello!"))
+//!     .await?;
+//!
+//! println!("{}", response.output_text);
+//! # Ok(())
+//! # }
+//! ```
+
 #![allow(clippy::collapsible_if)]
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_stream::try_stream;
 use async_trait::async_trait;
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
 use futures_util::StreamExt;
 use reqwest::header::CONTENT_TYPE;
 use serde_json::{Map, Value, json};
@@ -12,8 +49,8 @@ use crate::error::{Error, ErrorCode};
 use crate::model_adapters::{ModelAdapter, check_response_status, map_send_error};
 use crate::stream::drain_sse_frames;
 use crate::types::{
-    ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, Google, Message,
-    MessageRole, ReasoningPart, StreamEvent, TextStream, ToolCall, Usage,
+    ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, Google, ImagePart,
+    MediaData, Message, MessageRole, ReasoningPart, StreamEvent, TextStream, ToolCall, Usage,
 };
 
 /// Provider slug used in ids and error metadata.
@@ -388,6 +425,7 @@ fn to_google_messages(messages: &[Message]) -> (Vec<Value>, Option<String>) {
                             }));
                         }
                         ContentPart::ToolResult(_) => {}
+                        ContentPart::Image(_) => {}
                     }
                 }
                 if !parts.is_empty() {
@@ -442,9 +480,27 @@ fn text_parts_from_message(message: &Message) -> Vec<Value> {
         .iter()
         .filter_map(|part| match part {
             ContentPart::Text(text) if !text.is_empty() => Some(json!({ "text": text })),
+            ContentPart::Image(image) => Some(google_image_part(image)),
             _ => None,
         })
         .collect()
+}
+
+fn google_image_part(image: &ImagePart) -> Value {
+    match &image.data {
+        MediaData::Url(url) => {
+            let mt = image.media_type.as_deref().unwrap_or("image/jpeg");
+            json!({ "fileData": { "mimeType": mt, "fileUri": url } })
+        }
+        MediaData::Base64(b64) => {
+            let mt = image.media_type.as_deref().unwrap_or("image/jpeg");
+            json!({ "inlineData": { "mimeType": mt, "data": b64 } })
+        }
+        MediaData::Bytes(bytes) => {
+            let mt = image.media_type.as_deref().unwrap_or("image/jpeg");
+            json!({ "inlineData": { "mimeType": mt, "data": STANDARD.encode(bytes) } })
+        }
+    }
 }
 
 fn text_content_from_parts(parts: &[ContentPart]) -> String {

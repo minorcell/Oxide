@@ -1,3 +1,41 @@
+//! Provider-bound client types and retry behavior for Aquaregia.
+//!
+//! This module provides the core client abstractions for making LLM requests:
+//!
+//! - [`LlmClient`]: Entry point for creating provider-specific clients
+//! - [`ClientBuilder<P>`]: Builder for configuring HTTP/runtime behavior
+//! - [`BoundClient<P>`]: Reusable client for generate/stream/agent operations
+//!
+//! ## Architecture
+//!
+//! The client architecture uses a type-state pattern where:
+//! 1. [`LlmClient`] constructors return a [`ClientBuilder<P>`] with provider type `P`
+//! 2. [`ClientBuilder<P>`] configures settings and HTTP behavior
+//! 3. [`ClientBuilder<P>::build()`] produces a [`BoundClient<P>`]
+//! 4. [`BoundClient<P>`] is used for all subsequent operations
+//!
+//! ## Example
+//!
+//! ```rust,no_run
+//! use aquaregia::{GenerateTextRequest, LlmClient};
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! // Create and build client
+//! let client = LlmClient::openai("api-key")
+//!     .timeout(std::time::Duration::from_secs(60))
+//!     .max_retries(3)
+//!     .build()?;
+//!
+//! // Use client for generation
+//! let response = client
+//!     .generate(GenerateTextRequest::from_user_prompt("gpt-4o", "Hello!"))
+//!     .await?;
+//!
+//! println!("{}", response.output_text);
+//! # Ok(())
+//! # }
+//! ```
+
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -25,11 +63,30 @@ use crate::types::{
 /// Binds a provider marker type to its adapter settings and adapter implementation.
 ///
 /// This trait is mainly an internal extension seam used by [`ClientBuilder`].
+/// It associates each provider marker with its specific settings type and
+/// provides the conversion logic to create a runtime adapter.
+///
+/// ## Implementors
+///
+/// This trait is implemented for the four provider markers:
+/// - [`OpenAi`]
+/// - [`Anthropic`]
+/// - [`Google`]
+/// - [`OpenAiCompatible`]
 pub trait ProviderBinding: ProviderMarker {
     /// Provider-specific client configuration payload.
+    ///
+    /// Each provider has different configuration options:
+    /// - OpenAI: `base_url`, `api_key`
+    /// - Anthropic: `base_url`, `api_key`, `api_version`
+    /// - Google: `base_url`, `api_key`
+    /// - OpenAI-compatible: `base_url`, optional `api_key`, custom headers/query params
     type Settings;
 
     /// Converts provider settings into a runtime adapter.
+    ///
+    /// This method consumes the settings and creates a boxed adapter trait object
+    /// that handles provider-specific request/response formatting.
     fn into_adapter(
         settings: Self::Settings,
         http: Arc<reqwest::Client>,

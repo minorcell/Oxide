@@ -1,23 +1,61 @@
+//! Stream parser for extracting reasoning content from `<thinking>` or `<think>` tags.
+//!
+//! This module provides utilities for parsing reasoning traces embedded in model output
+//! using XML-style tags. It supports incremental parsing for streaming responses.
+//!
+//! ## Supported Tags
+//!
+//! - `<think>` / `</think>` - Short form reasoning tags
+//! - `<thinking>` / `</thinking>` - Long form reasoning tags
+//!
+//! ## Example
+//!
+//! ```rust
+//! # use aquaregia::model_adapters::think_tag_parser::split_think_tags;
+//! let input = "<thinking>internal plan</thinking>final answer";
+//! let result = split_think_tags(input, true);
+//!
+//! assert_eq!(result.reasoning, "internal plan");
+//! assert_eq!(result.text, "final answer");
+//! ```
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ThinkTagSegment {
+    /// Plain text segment outside reasoning tags.
     Text(String),
+    /// Reasoning text segment inside `<thinking>` or `<think>` tags.
     Reasoning(String),
 }
 
+/// Result of splitting reasoning and text content from tagged input.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct ThinkTagSplitResult {
+    /// Plain text content outside reasoning tags.
     pub(crate) text: String,
+    /// Reasoning content extracted from inside tags.
     pub(crate) reasoning: String,
 }
 
+/// Incremental parser for streaming reasoning tag extraction.
+///
+/// This parser handles chunked input, maintaining state across feeds
+/// to correctly parse tags that span chunk boundaries.
 #[derive(Debug, Clone)]
 pub(crate) struct ThinkTagStreamParser {
+    /// Whether currently inside a reasoning block.
     in_reasoning: bool,
+    /// Buffered partial tag data.
     carry: String,
+    /// Whether to match tags case-insensitively.
     case_insensitive: bool,
 }
 
 impl ThinkTagStreamParser {
+    /// Creates a new parser with case sensitivity option.
+    ///
+    /// # Arguments
+    ///
+    /// * `case_insensitive` - If true, matches tags like `<THINKING>` case-insensitively
     pub(crate) fn new(case_insensitive: bool) -> Self {
         Self {
             in_reasoning: false,
@@ -26,6 +64,15 @@ impl ThinkTagStreamParser {
         }
     }
 
+    /// Feeds a chunk of text into the parser and returns parsed segments.
+    ///
+    /// # Arguments
+    ///
+    /// * `chunk` - Text chunk to parse
+    ///
+    /// # Returns
+    ///
+    /// Vector of parsed segments. May buffer incomplete tags for the next feed.
     pub(crate) fn feed(&mut self, chunk: &str) -> Vec<ThinkTagSegment> {
         if chunk.is_empty() {
             return Vec::new();
@@ -44,6 +91,9 @@ impl ThinkTagStreamParser {
         self.consume(&input)
     }
 
+    /// Finishes parsing and returns any remaining buffered content.
+    ///
+    /// Call this after the final chunk to flush any partial tags.
     pub(crate) fn finish(&mut self) -> Vec<ThinkTagSegment> {
         if self.carry.is_empty() {
             return Vec::new();
@@ -54,6 +104,7 @@ impl ThinkTagStreamParser {
         out
     }
 
+    /// Consume input and produce segments.
     fn consume(&mut self, input: &str) -> Vec<ThinkTagSegment> {
         let mut out = Vec::new();
         let mut cursor = 0usize;
@@ -104,6 +155,7 @@ impl ThinkTagStreamParser {
         out
     }
 
+    /// Push a text segment, merging with the last segment if same type.
     fn push_segment(&self, out: &mut Vec<ThinkTagSegment>, text: &str) {
         if text.is_empty() {
             return;
@@ -117,6 +169,19 @@ impl ThinkTagStreamParser {
     }
 }
 
+/// Splits reasoning and text content from tagged input.
+///
+/// This is a convenience function for one-shot parsing of complete input.
+/// For streaming input, use [`ThinkTagStreamParser`] instead.
+///
+/// # Arguments
+///
+/// * `input` - Complete input string with reasoning tags
+/// * `case_insensitive` - Whether to match tags case-insensitively
+///
+/// # Returns
+///
+/// [`ThinkTagSplitResult`] with separated text and reasoning content.
 pub(crate) fn split_think_tags(input: &str, case_insensitive: bool) -> ThinkTagSplitResult {
     let mut parser = ThinkTagStreamParser::new(case_insensitive);
     let mut result = ThinkTagSplitResult::default();
@@ -133,19 +198,27 @@ pub(crate) fn split_think_tags(input: &str, case_insensitive: bool) -> ThinkTagS
     result
 }
 
+/// Tag type identifier for reasoning blocks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TagToken {
+    /// Opening tag (`<think>` or `<thinking>`).
     Open,
+    /// Closing tag (`</think>` or `</thinking>`).
     Close,
 }
 
+/// Result of matching against a known tag.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TagMatch {
+    /// Complete tag matched with token type and length.
     Full(TagToken, usize),
+    /// Partial tag matched, needs more input.
     Partial,
+    /// No known tag matched.
     None,
 }
 
+/// Known reasoning tag literals.
 const THINK_OPEN: &str = "<think>";
 const THINKING_OPEN: &str = "<thinking>";
 const THINK_CLOSE: &str = "</think>";
@@ -157,6 +230,12 @@ const KNOWN_TAGS: [(&str, TagToken); 4] = [
     (THINKING_CLOSE, TagToken::Close),
 ];
 
+/// Classifies a tag prefix against known reasoning tags.
+///
+/// # Arguments
+///
+/// * `input` - Input string starting with `<`
+/// * `case_insensitive` - Whether to match case-insensitively
 fn classify_tag_prefix(input: &str, case_insensitive: bool) -> TagMatch {
     if !input.starts_with('<') {
         return TagMatch::None;
@@ -177,6 +256,7 @@ fn classify_tag_prefix(input: &str, case_insensitive: bool) -> TagMatch {
     TagMatch::None
 }
 
+/// Checks if input starts with a prefix.
 fn has_prefix(input: &str, prefix: &str, case_insensitive: bool) -> bool {
     if input.len() < prefix.len() {
         return false;
@@ -189,6 +269,7 @@ fn has_prefix(input: &str, prefix: &str, case_insensitive: bool) -> bool {
     }
 }
 
+/// Checks if input is a prefix of a known tag.
 fn is_prefix_of_known_tag(input: &str, full_tag: &str, case_insensitive: bool) -> bool {
     if input.len() >= full_tag.len() {
         return false;

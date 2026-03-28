@@ -1,3 +1,47 @@
+//! Provider adapter traits and concrete provider implementations for Aquaregia.
+//!
+//! This module defines the adapter abstraction that allows Aquaregia to support
+//! multiple LLM providers through a unified interface:
+//!
+//! - [`ModelAdapter<P>`]: Trait for provider-specific request/response handling
+//! - Provider implementations:
+//!   - `openai::OpenAiAdapter`: OpenAI API adapter
+//!   - `anthropic::AnthropicAdapter`: Anthropic API adapter
+//!   - `google::GoogleAdapter`: Google Generative AI API adapter
+//!   - `openai_compatible::OpenAiCompatibleAdapter`: OpenAI-compatible endpoints
+//!
+//! ## Adapter Architecture
+//!
+//! Each provider adapter implements the [`ModelAdapter`] trait which defines:
+//! - `generate_text`: Non-streaming text generation
+//! - `stream_text`: Streaming text generation with SSE parsing
+//!
+//! ## Creating Adapters
+//!
+//! Adapters are typically created through [`crate::ClientBuilder`] which handles
+//! the configuration and HTTP client setup:
+//!
+//! ```rust,no_run
+//! use aquaregia::LlmClient;
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! // OpenAI adapter
+//! let openai_client = LlmClient::openai("api-key").build()?;
+//!
+//! // Anthropic adapter
+//! let anthropic_client = LlmClient::anthropic("api-key").build()?;
+//!
+//! // Google adapter
+//! let google_client = LlmClient::google("api-key").build()?;
+//!
+//! // OpenAI-compatible adapter (e.g., DeepSeek, local LLMs)
+//! let compatible_client = LlmClient::openai_compatible("https://api.example.com")
+//!     .api_key("api-key")
+//!     .build()?;
+//! # Ok(())
+//! # }
+//! ```
+
 use std::sync::Arc;
 
 use async_trait::async_trait;

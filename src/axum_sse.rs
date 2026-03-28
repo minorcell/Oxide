@@ -1,3 +1,39 @@
+//! Axum SSE bridge for converting [`TextStream`] into SSE responses.
+//!
+//! This module provides integration with the Axum web framework, allowing
+//! Aquaregia streaming responses to be converted into Server-Sent Events (SSE)
+//! for HTTP streaming to web clients.
+//!
+//! ## Feature Flag
+//!
+//! This module is only available when the `axum` feature is enabled:
+//!
+//! ```toml
+//! [dependencies]
+//! aquaregia = { version = "*", features = ["axum"] }
+//! ```
+//!
+//! ## Example
+//!
+//! ```rust,no_run
+//! use aquaregia::{axum_sse::stream_to_sse, GenerateTextRequest, LlmClient};
+//! use axum::{routing::post, Router};
+//!
+//! async fn stream_handler(
+//!     axum::extract::State(client): axum::extract::State<std::sync::Arc<LlmClient>>,
+//! ) -> impl axum::response::IntoResponse {
+//!     let stream = client
+//!         .stream(GenerateTextRequest::from_user_prompt("gpt-4o", "Hello!"))
+//!         .await
+//!         .unwrap();
+//!     stream_to_sse(stream)
+//! }
+//!
+//! # fn main() -> Router {
+//! Router::new().route("/stream", post(stream_handler))
+//! # }
+//! ```
+
 use std::convert::Infallible;
 
 use axum::response::sse::{Event, Sse};
