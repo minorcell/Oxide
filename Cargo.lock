@@ -27,7 +27,7 @@ dependencies = [
 
 [[package]]
 name = "aquaregia"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "aquaregia-macros",
  "async-stream",
@@ -52,7 +52,7 @@ dependencies = [
 
 [[package]]
 name = "aquaregia-macros"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "proc-macro2",
  "quote",

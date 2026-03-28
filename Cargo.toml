@@ -1,6 +1,6 @@
 [package]
 name = "aquaregia"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2024"
 description = "Provider-agnostic Rust toolkit for AI apps and agents."
 license = "MIT"
@@ -20,7 +20,7 @@ axum = ["dep:axum"]
 telemetry = ["dep:tracing"]
 
 [dependencies]
-aquaregia-macros = { path = "aquaregia-macros", version = "0.1.5" }
+aquaregia-macros = { path = "aquaregia-macros", version = "0.1.6" }
 async-stream = "0.3"
 base64 = "0.22"
 async-trait = "0.1"
