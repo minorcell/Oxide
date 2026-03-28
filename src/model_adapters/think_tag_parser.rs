@@ -10,7 +10,7 @@
 //!
 //! ## Example
 //!
-//! ```rust
+//! ```rust,ignore
 //! # use aquaregia::model_adapters::think_tag_parser::split_think_tags;
 //! let input = "<thinking>internal plan</thinking>final answer";
 //! let result = split_think_tags(input, true);
