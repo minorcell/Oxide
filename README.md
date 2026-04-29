@@ -236,6 +236,7 @@ Provider image format mapping:
 
 ### Error Handling
 
+```
 match client
     .generate(GenerateTextRequest::from_user_prompt("deepseek-chat", "hello"))
     .await
